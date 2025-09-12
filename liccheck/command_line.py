@@ -1,3 +1,5 @@
+# liccheck/command_line.py - FINAL CORRECTED VERSION
+
 import argparse
 import collections
 import os.path
@@ -17,6 +19,39 @@ try:
     FileNotFoundError
 except NameError:
     FileNotFoundError = IOError
+
+# +++ NEW, MODERNIZED HELPER FUNCTIONS +++
+def get_licenses_from_classifiers(dist):
+    """
+    Get licenses from classifiers using the modern metadata object.
+    """
+    licenses = []
+    for classifier in dist.metadata.get_all("Classifier", []):
+        if classifier.startswith("License :: OSI Approved ::"):
+            licenses.append(classifier.split("::")[-1].strip())
+    return licenses
+
+
+def get_license(dist):
+    """
+    Get license from distribution using the modern metadata object.
+    """
+    # The primary way to get a license is from the "License" metadata field.
+    license_str = dist.metadata.get("License")
+    if license_str and license_str.strip() and license_str.strip().lower() != "unknown":
+        return [license_str]
+
+    # As a fallback, try to read a license file directly from the package.
+    try:
+        if dist.files:
+            for file in dist.files:
+                if file.name.upper() in ("LICENSE", "LICENSE.TXT", "LICENSE.RST", "COPYING"):
+                    return [dist.read_text(file.name)]
+    except Exception:
+        pass  # Ignore errors if files can't be read
+
+    return []
+# +++ END OF NEW FUNCTIONS +++
 
 
 class NoValidConfigurationInPyprojectToml(BaseException):
@@ -138,11 +173,6 @@ class Reason(enum.Enum):
 
 
 def get_packages_info(requirement_file, no_deps=False):
-    regex_license = re.compile(r"License(?:-Expression)?: (?P<license>.*)?$", re.M)
-    regex_classifier = re.compile(
-        r"Classifier: License(?: :: OSI Approved)?(?: :: (?P<classifier>.*))?$", re.M
-    )
-
     requirements = parse_requirements(requirement_file)
 
     def transform(dist):
@@ -152,44 +182,33 @@ def get_packages_info(requirement_file, no_deps=False):
         # Strip the useless "License" suffix and uniquify
         licenses = list(set([strip_license(l) for l in licenses]))
 
+        # Get dependencies from metadata
+        dependencies = []
+        requires = dist.metadata.get_all("Requires-Dist")
+        if requires:
+            for req in requires:
+                # Extract package name, ignoring version specs and environment markers
+                match = re.match(r"^[a-zA-Z0-9._-]+", req)
+                if match:
+                    dependencies.append(match.group(0))
+        
         return {
-            "name": dist.project_name,
-            "version": dist.version,
-            "location": dist.location,
-            "dependencies": [dependency.project_name for dependency in dist.requires()],
+            "name": dist.metadata["name"],
+            "version": dist.metadata["version"],
+            "location": str(dist.path),
+            "dependencies": dependencies,
             "licenses": licenses,
         }
 
-    def get_license(dist):
-        if dist.has_metadata(dist.PKG_INFO):
-            metadata = dist.get_metadata(dist.PKG_INFO)
-            match = regex_license.search(metadata)
-            if match:
-                license = match.group("license")
-                if license != "UNKNOWN":  # Value when license not specified.
-                    return [license]
+    def strip_license_for_windows(license_str):
+        if license_str and license_str.endswith("\r"):
+            return license_str[:-1]
+        return license_str
 
-        return []
-
-    def get_licenses_from_classifiers(dist):
-        if dist.has_metadata(dist.PKG_INFO):
-            metadata = dist.get_metadata(dist.PKG_INFO)
-
-            # match might be found, but None if using the classifier:
-            # License :: OSI Approved
-            return [m for m in regex_classifier.findall(metadata) if m]
-
-        return []
-
-    def strip_license_for_windows(license):
-        if license.endswith("\r"):
-            return license[:-1]
-        return license
-
-    def strip_license(license):
-        if license.lower().endswith(" license"):
-            return license[: -len(" license")]
-        return license
+    def strip_license(license_str):
+        if license_str and license_str.lower().endswith(" license"):
+            return license_str[: -len(" license")]
+        return license_str
 
     resolve_func = resolve_without_deps if no_deps else resolve
     packages = [transform(dist) for dist in resolve_func(requirements)]
@@ -269,7 +288,7 @@ def find_parents(package, all, seen):
         return [package]
     seen.add(package)
     parents = [p["name"] for p in all if package in p["dependencies"]]
-    if len(parents) == 0:
+    if not parents:
         return [package]
     dependency_trees = []
     for parent in parents:
