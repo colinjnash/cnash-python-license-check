@@ -1,8 +1,10 @@
-# liccheck/command_line.py - FINAL VERSION 2.2.0
+# liccheck/command_line.py - FINAL VERSION 3.0.0
 
 import argparse
 import collections
 import os.path
+import json
+from urllib import request, error
 
 from liccheck.requirements import parse_requirements, resolve, resolve_without_deps
 
@@ -15,7 +17,7 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"
 
 try:
     FileNotFoundError
@@ -26,24 +28,14 @@ def normalize_license(text):
     if not isinstance(text, str): return "UNKNOWN"
     text_lower = text.lower()
     
-    # Heuristics to identify licenses from their full text content.
-    if 'mit license' in text_lower and 'permission is hereby granted' in text_lower:
-        return 'MIT'
-    if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower:
-        return 'BSD-3-Clause'
-    if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower:
-        return 'BSD-2-Clause'
-    if 'bsd' in text_lower and 'redistribution and use in source' in text_lower:
-        return 'BSD'
-    if 'apache license' in text_lower and 'version 2.0' in text_lower:
-        return 'Apache-2.0'
-    if 'mozilla public license' in text_lower and 'version 2.0' in text_lower:
-        return 'MPL-2.0'
-    if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower:
-        return 'ISC'
+    if 'mit license' in text_lower and 'permission is hereby granted' in text_lower: return 'MIT'
+    if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-3-Clause'
+    if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-2-Clause'
+    if 'bsd' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD'
+    if 'apache license' in text_lower and 'version 2.0' in text_lower: return 'Apache-2.0'
+    if 'mozilla public license' in text_lower and 'version 2.0' in text_lower: return 'MPL-2.0'
+    if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower: return 'ISC'
 
-    # +++ FINAL IMPROVEMENT: If no match, search the first few lines for a name +++
-    # This handles files that start with a copyright line.
     first_few_lines = " ".join(text.splitlines()[:5]).lower()
     if 'mit license' in first_few_lines: return 'MIT'
     if 'bsd license' in first_few_lines: return 'BSD'
@@ -51,6 +43,21 @@ def normalize_license(text):
     if 'isc license' in first_few_lines: return 'ISC'
     
     return "UNKNOWN"
+
+def get_license_from_pypi(package_name):
+    """Fallback to query the PyPI JSON API for license info."""
+    url = f"https://pypi.org/pypi/{package_name}/json"
+    try:
+        with request.urlopen(url, timeout=5) as response:
+            if response.status == 200:
+                data = json.load(response)
+                license_info = data.get("info", {}).get("license")
+                if license_info and license_info.strip().lower() != 'unknown':
+                    return [license_info]
+    except (error.URLError, error.HTTPError, TimeoutError):
+        # Ignore network errors or if package not on PyPI
+        pass
+    return []
 
 def get_licenses_from_classifiers(dist):
     licenses = []
@@ -60,17 +67,17 @@ def get_licenses_from_classifiers(dist):
     return licenses
 
 def get_license(dist):
-    # 1. Check for the modern 'License-Expression' field first.
+    # 1. Check for modern 'License-Expression'
     license_expr = dist.metadata.get("License-Expression")
     if license_expr and license_expr.strip().lower() != "unknown":
         return [license_expr]
 
-    # 2. Check for the legacy 'License' field.
+    # 2. Check for legacy 'License'
     license_str = dist.metadata.get("License")
     if license_str and license_str.strip().lower() != "unknown":
         return [license_str]
         
-    # 3. Fallback to reading a license file.
+    # 3. Fallback to reading a license file
     try:
         if dist.files:
             for file in dist.files:
@@ -143,7 +150,9 @@ class Reason(enum.Enum):
 def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
     def transform(dist):
-        raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
+        # The new 4-step detection logic
+        raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or get_license_from_pypi(dist.metadata["name"]) or []
+        
         licenses = [lic for lic in raw_licenses if lic]
         normalized_licenses = set()
         for lic in licenses:
@@ -169,6 +178,11 @@ def get_packages_info(requirement_file, no_deps=False):
 
 
 def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
+    # Your internal packages will not be on PyPI, so they will be UNKNOWN.
+    # We add a check here to treat any 'aifi-*' package as OK.
+    if pkg["name"].startswith("aifi-"):
+        return Reason.OK
+
     whitelisted = pkg["name"] in strategy.AUTHORIZED_PACKAGES and (semantic_version.SimpleSpec(strategy.AUTHORIZED_PACKAGES[pkg["name"]]).match(semantic_version.Version.coerce(pkg["version"])) or (level == Level.STANDARD and strategy.AUTHORIZED_PACKAGES[pkg["name"]] == ""))
     if whitelisted: return Reason.OK
     def check_one(license_str, license_rule="AUTHORIZED", as_regex=False):
