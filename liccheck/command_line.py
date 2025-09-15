@@ -1,4 +1,4 @@
-# liccheck/command_line.py - DEEP DIVE DEBUG VERSION 1.6.0
+# liccheck/command_line.py - FINAL VERSION 2.0.0
 
 import argparse
 import collections
@@ -15,9 +15,13 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "1.6.0-deep-debug"
+__version__ = "2.0.0"
 
-# Previous helpers - kept for context but the deep dive is the focus
+try:
+    FileNotFoundError
+except NameError:
+    FileNotFoundError = IOError
+
 def normalize_license(text):
     if not isinstance(text, str): return "UNKNOWN"
     text_lower = text.lower()
@@ -39,9 +43,18 @@ def get_licenses_from_classifiers(dist):
     return licenses
 
 def get_license(dist):
+    # +++ FINAL FIX: Check for modern 'License-Expression', then old 'License' +++
+    # 1. Check for the modern 'License-Expression' field first.
+    license_expr = dist.metadata.get("License-Expression")
+    if license_expr and license_expr.strip().lower() != "unknown":
+        return [license_expr]
+
+    # 2. Check for the legacy 'License' field.
     license_str = dist.metadata.get("License")
-    if license_str and license_str.strip() and license_str.strip().lower() != "unknown":
+    if license_str and license_str.strip().lower() != "unknown":
         return [license_str]
+        
+    # 3. Fallback to reading a license file.
     try:
         if dist.files:
             for file in dist.files:
@@ -59,10 +72,8 @@ class NoValidConfigurationInPyprojectToml(BaseException):
 def from_pyproject_toml():
     try:
         pyproject_toml = toml.load("pyproject.toml")
-        try:
-            return pyproject_toml["tool"]["liccheck"]
-        except KeyError:
-            raise NoValidConfigurationInPyprojectToml
+        try: return pyproject_toml["tool"]["liccheck"]
+        except KeyError: raise NoValidConfigurationInPyprojectToml
     except FileNotFoundError:
         raise NoValidConfigurationInPyprojectToml
 
@@ -78,10 +89,8 @@ class Strategy:
     @classmethod
     def from_pyproject_toml(cls):
         liccheck_section = from_pyproject_toml()
-        def elements_to_lower_str(lst):
-            return [str(_).lower() for _ in lst]
-        strategy = cls(authorized_licenses=elements_to_lower_str(liccheck_section.get("authorized_licenses", [])), unauthorized_licenses=elements_to_lower_str(liccheck_section.get("unauthorized_licenses", [])), authorized_packages=liccheck_section.get("authorized_packages", dict()))
-        return strategy
+        def elements_to_lower_str(lst): return [str(_).lower() for _ in lst]
+        return cls(authorized_licenses=elements_to_lower_str(liccheck_section.get("authorized_licenses", [])), unauthorized_licenses=elements_to_lower_str(liccheck_section.get("unauthorized_licenses", [])), authorized_packages=liccheck_section.get("authorized_packages", dict()))
 
     @classmethod
     def from_config(cls, strategy_file):
@@ -94,12 +103,10 @@ class Strategy:
             return [item for item in value.lower().split("\n") if item]
         authorized_packages = dict()
         if config.has_section("Authorized Packages"):
-            for name, value in config.items("Authorized Packages"):
-                authorized_packages[name] = value
+            for name, value in config.items("Authorized Packages"): authorized_packages[name] = value
         strategy = cls(authorized_licenses=get_config_list("Licenses", "authorized_licenses"), unauthorized_licenses=get_config_list("Licenses", "unauthorized_licenses"), authorized_packages=authorized_packages)
         if config.has_section("Authorized Packages"):
-            for name, value in config.items("Authorized Packages"):
-                strategy.AUTHORIZED_PACKAGES[name] = value
+            for name, value in config.items("Authorized Packages"): strategy.AUTHORIZED_PACKAGES[name] = value
         return strategy
 
 
@@ -120,22 +127,6 @@ class Reason(enum.Enum):
 def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
     def transform(dist):
-        # +++ START DEEP DIVE DEBUG BLOCK +++
-        if dist.metadata['name'].lower() == 'zipp':
-            print("\n--- DEEP DIVE DEBUG FOR zipp ---")
-            try:
-                # Find the path to the METADATA file within the .dist-info directory
-                metadata_path = next(p for p in dist.files if p.name == 'METADATA')
-                print(f"Attempting to read METADATA file from: {dist.locate_file(metadata_path)}")
-                content = dist.read_text(metadata_path.name)
-                print("--- RAW METADATA FILE CONTENTS ---")
-                print(content)
-                print("--- END RAW METADATA ---")
-            except Exception as e:
-                print(f"ERROR: Could not read METADATA file for zipp. Reason: {e}")
-            print("--- END DEEP DIVE DEBUG ---\n")
-        # +++ END DEEP DIVE DEBUG BLOCK +++
-            
         raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
         licenses = [lic for lic in raw_licenses if lic]
         normalized_licenses = set()
@@ -147,8 +138,7 @@ def get_packages_info(requirement_file, no_deps=False):
         if requires:
             for req in requires:
                 match = re.match(r"^[a-zA-Z0-9._-]+", req)
-                if match:
-                    dependencies.append(match.group(0))
+                if match: dependencies.append(match.group(0))
         return {"name": dist.metadata["name"], "version": dist.metadata["version"], "location": str(dist.locate_file('')), "dependencies": dependencies, "licenses": final_licenses}
     
     def strip_license(license_str):
