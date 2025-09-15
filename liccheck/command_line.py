@@ -176,7 +176,11 @@ def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
 
     def transform(dist):
-        licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
+        raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
+        
+        # +++ CHANGE 1: Filter out None or empty string licenses +++
+        licenses = [lic for lic in raw_licenses if lic]
+        
         # Removing Trailing windows generated \r
         licenses = list(set([strip_license_for_windows(l) for l in licenses]))
         # Strip the useless "License" suffix and uniquify
@@ -195,7 +199,6 @@ def get_packages_info(requirement_file, no_deps=False):
         return {
             "name": dist.metadata["name"],
             "version": dist.metadata["version"],
-            # +++ THIS IS THE CORRECTED LINE +++
             "location": str(dist.locate_file('')),
             "dependencies": dependencies,
             "licenses": licenses,
@@ -277,8 +280,11 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
     return Reason.UNKNOWN
 
 def get_license_names(licenses):
+    # +++ CHANGE 2: Add a safeguard check +++
     names = []
     for license in licenses:
+        if not license:  # Defensively skip any None or empty string values
+            continue
         options = license.split(" OR ")
         for option in options:
             names.append(option.lower())
