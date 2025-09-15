@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL CORRECTED VERSION
+
 
 import argparse
 import collections
@@ -26,8 +26,9 @@ def get_licenses_from_classifiers(dist):
     Get licenses from classifiers using the modern metadata object.
     """
     licenses = []
+    # +++ THIS IS THE CORRECTED LINE (BROADER SEARCH) +++
     for classifier in dist.metadata.get_all("Classifier", []):
-        if classifier.startswith("License :: OSI Approved ::"):
+        if classifier.startswith("License ::"): # Was "License :: OSI Approved ::"
             licenses.append(classifier.split("::")[-1].strip())
     return licenses
 
@@ -178,7 +179,7 @@ def get_packages_info(requirement_file, no_deps=False):
     def transform(dist):
         raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
         
-        # +++ CHANGE 1: Filter out None or empty string licenses +++
+        # Filter out None or empty string licenses
         licenses = [lic for lic in raw_licenses if lic]
         
         # Removing Trailing windows generated \r
@@ -280,7 +281,6 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
     return Reason.UNKNOWN
 
 def get_license_names(licenses):
-    # +++ CHANGE 2: Add a safeguard check +++
     names = []
     for license in licenses:
         if not license:  # Defensively skip any None or empty string values
