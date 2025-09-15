@@ -1,10 +1,11 @@
-# liccheck/command_line.py - FINAL VERSION 3.1.0
+# liccheck/command_line.py - FINAL VERSION 3.2.0
 
 import argparse
 import collections
 import os.path
 import json
 from urllib import request, error
+import socket
 
 from liccheck.requirements import parse_requirements, resolve, resolve_without_deps
 
@@ -17,7 +18,7 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 try:
     FileNotFoundError
@@ -27,14 +28,13 @@ except NameError:
 def normalize_license(text):
     if not isinstance(text, str): return "UNKNOWN"
     
-    # +++ FIX: Handle full classifier strings first +++
+    # +++ FIX: Make heuristics more robust for different file formats +++
     if "::" in text:
         text = text.split("::")[-1].strip()
-
     text_lower = text.lower()
     
-    # Heuristics for full license text
-    if 'mit license' in text_lower and 'permission is hereby granted' in text_lower: return 'MIT'
+    if 'permission is hereby granted' in text_lower and 'mit license' in text_lower: return 'MIT'
+    if 'permission is hereby granted' in text_lower: return 'MIT' # More permissive MIT check
     if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-3-Clause'
     if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-2-Clause'
     if 'bsd' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD'
@@ -42,11 +42,7 @@ def normalize_license(text):
     if 'mozilla public license' in text_lower and 'version 2.0' in text_lower: return 'MPL-2.0'
     if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower: return 'ISC'
 
-    # If it's a short name already, just return it
-    if len(text) < 40:
-        return text.strip()
-
-    # Fallback for other license files: try to find a name in the first few lines
+    if len(text) < 40: return text.strip()
     first_few_lines = " ".join(text.splitlines()[:5]).lower()
     if 'mit license' in first_few_lines: return 'MIT'
     if 'bsd license' in first_few_lines: return 'BSD'
@@ -56,7 +52,6 @@ def normalize_license(text):
     return "UNKNOWN"
 
 def get_license_from_pypi(package_name):
-    """Fallback to query the PyPI JSON API for license info."""
     url = f"https://pypi.org/pypi/{package_name}/json"
     try:
         with request.urlopen(url, timeout=10) as response:
@@ -78,11 +73,9 @@ def get_licenses_from_classifiers(dist):
 
 def get_license(dist):
     license_expr = dist.metadata.get("License-Expression")
-    if license_expr and license_expr.strip().lower() != "unknown":
-        return [license_expr]
+    if license_expr and license_expr.strip().lower() != "unknown": return [license_expr]
     license_str = dist.metadata.get("License")
-    if license_str and license_str.strip().lower() != "unknown":
-        return [license_str]
+    if license_str and license_str.strip().lower() != "unknown": return [license_str]
     try:
         if dist.files:
             for file in dist.files:
@@ -222,21 +215,33 @@ def find_parents(package, all, seen):
             dependency_trees.append(package + " << " + dependencies)
     return dependency_trees
 
+def find_direct_parents(package, all):
+    return sorted([p["name"] for p in all if package in p["dependencies"]])
 
-def write_package(package, all, no_deps=False):
+
+def write_package(package, all, dep_depth):
     licenses = sorted(package["licenses"]) or "UNKNOWN"
     print("    {} ({}): {}".format(package["name"], package["version"], licenses))
-    if not no_deps: write_deps(package, all)
+    if dep_depth != 0:
+        write_deps(package, all, dep_depth)
 
 
-def write_deps(package, all):
-    dependency_branches = find_parents(package["name"], all, set())
-    print("      dependenc{}:".format("y" if len(dependency_branches) <= 1 else "ies"))
-    for dependency_branch in dependency_branches: print("          {}".format(dependency_branch))
+def write_deps(package, all, dep_depth):
+    parents = []
+    if dep_depth == 1:
+        parents = find_direct_parents(package["name"], all)
+    elif dep_depth == -1:
+        parents = find_parents(package["name"], all, set())
+    
+    if parents:
+        print("      dependenc{}:".format("y" if len(parents) <= 1 else "ies"))
+        for parent in parents:
+            print("          {}".format(parent))
 
 
-def write_packages(packages, all, no_deps=False):
-    for package in packages: write_package(package, all, no_deps)
+def write_packages(packages, all, dep_depth):
+    for package in packages:
+        write_package(package, all, dep_depth)
 
 
 def group_by(items, key):
@@ -245,7 +250,7 @@ def group_by(items, key):
     return res
 
 
-def process(requirement_file, strategy, level=Level.STANDARD, reporting_file=None, no_deps=False, as_regex=False):
+def process(requirement_file, strategy, level=Level.STANDARD, reporting_file=None, no_deps=False, as_regex=False, dep_depth=1):
     print("gathering licenses...")
     pkg_info = get_packages_info(requirement_file, no_deps)
     all = list(pkg_info)
@@ -261,8 +266,8 @@ def process(requirement_file, strategy, level=Level.STANDARD, reporting_file=Non
             for p in sorted(packages, key=lambda i: i["name"]): f.write("{} {} {} {}\n".format(p["name"], p["version"], p["license"], p["status"].value))
     def format(l): return "{} package{}.".format(len(l), "" if len(l) <= 1 else "s")
     if groups[Reason.OK]: print("check authorized packages..."); print(format(groups[Reason.OK]))
-    if groups[Reason.UNAUTHORIZED]: print("check unauthorized packages..."); print(format(groups[Reason.UNAUTHORIZED])); write_packages(groups[Reason.UNAUTHORIZED], all, no_deps); ret = -1
-    if groups[Reason.UNKNOWN]: print("check unknown packages..."); print(format(groups[Reason.UNKNOWN])); write_packages(groups[Reason.UNKNOWN], all, no_deps); ret = -1
+    if groups[Reason.UNAUTHORIZED]: print("check unauthorized packages..."); print(format(groups[Reason.UNAUTHORIZED])); write_packages(groups[Reason.UNAUTHORIZED], all, dep_depth); ret = -1
+    if groups[Reason.UNKNOWN]: print("check unknown packages..."); print(format(groups[Reason.UNKNOWN])); write_packages(groups[Reason.UNKNOWN], all, dep_depth); ret = -1
     return ret
 
 
@@ -287,17 +292,19 @@ def parse_args(args):
     parser.add_argument("-R", "--reporting", dest="reporting_txt_file", help="path/to/reporting.txt file", nargs="?", default=None)
     parser.add_argument("--no-deps", dest="no_deps", help="don't check dependencies", action="store_true")
     parser.add_argument("--as-regex", dest="as_regex", help="enable regular expression matching for licenses", action="store_true")
+    # +++ NEW ARGUMENT FOR DEPENDENCY PRINTOUT +++
+    parser.add_argument("--dep-depth", type=int, default=1, help="Set dependency printout depth. 0=none, 1=direct parents (default), -1=full tree.")
     return parser.parse_args(args)
 
 
 def merge_args(args):
     try: config = from_pyproject_toml()
     except NoValidConfigurationInPyprojectToml: return args
-    return {"strategy_ini_file": config.get("strategy_ini_file", args["strategy_ini_file"]), "requirement_txt_file": config.get("requirement_txt_file", args["requirement_txt_file"]), "level": Level.starting(config.get("level", args["level"].value)), "reporting_txt_file": config.get("reporting_txt_file", args["reporting_txt_file"]), "no_deps": config.get("no_deps", args["no_deps"]), "dependencies": config.get("dependencies", args["dependencies"]), "optional_dependencies": config.get("optional_dependencies", args["optional_dependencies"]), "as_regex": config.get("as_regex", args["as_regex"])}
+    return {"strategy_ini_file": config.get("strategy_ini_file", args["strategy_ini_file"]), "requirement_txt_file": config.get("requirement_txt_file", args["requirement_txt_file"]), "level": Level.starting(config.get("level", args["level"].value)), "reporting_txt_file": config.get("reporting_txt_file", args["reporting_txt_file"]), "no_deps": config.get("no_deps", args["no_deps"]), "dependencies": config.get("dependencies", args["dependencies"]), "optional_dependencies": config.get("optional_dependencies", args["optional_dependencies"]), "as_regex": config.get("as_regex", args["as_regex"]), "dep_depth": config.get("dep_depth", args["dep_depth"])}
 
 
 def generate_requirements_file_from_pyproject(include_dependencies, optional_dependencies):
-    import tempfile, socket
+    import tempfile
     directory = tempfile.mkdtemp(prefix="liccheck_")
     requirements_txt_file = directory + "/requirements.txt"
     with open(requirements_txt_file, "w") as f:
@@ -314,16 +321,16 @@ def generate_requirements_file_from_pyproject(include_dependencies, optional_dep
 
 
 def run(args):
-    args = merge_args({"strategy_ini_file": args.strategy_ini_file, "requirement_txt_file": args.requirement_txt_file, "level": args.level, "reporting_txt_file": args.reporting_txt_file, "no_deps": args.no_deps, "dependencies": False, "optional_dependencies": [], "as_regex": False})
-    strategy = read_strategy(args["strategy_ini_file"])
+    merged_args = merge_args({"strategy_ini_file": args.strategy_ini_file, "requirement_txt_file": args.requirement_txt_file, "level": args.level, "reporting_txt_file": args.reporting_txt_file, "no_deps": args.no_deps, "dependencies": False, "optional_dependencies": [], "as_regex": False, "dep_depth": args.dep_depth})
+    strategy = read_strategy(merged_args["strategy_ini_file"])
     requirements_file_generated = False
-    if args["dependencies"] is True or len(args["optional_dependencies"]) > 0:
-        args["requirement_txt_file"] = generate_requirements_file_from_pyproject(args["dependencies"], args["optional_dependencies"]); requirements_file_generated = True
-    try: return process(args["requirement_txt_file"], strategy, args["level"], args["reporting_txt_file"], args["no_deps"], args["as_regex"])
+    if merged_args["dependencies"] is True or len(merged_args["optional_dependencies"]) > 0:
+        merged_args["requirement_txt_file"] = generate_requirements_file_from_pyproject(merged_args["dependencies"], merged_args["optional_dependencies"]); requirements_file_generated = True
+    try: return process(merged_args["requirement_txt_file"], strategy, merged_args["level"], merged_args["reporting_txt_file"], merged_args["no_deps"], merged_args["as_regex"], merged_args["dep_depth"])
     finally:
         if requirements_file_generated:
             import pathlib, shutil
-            shutil.rmtree(pathlib.Path(args["requirement_txt_file"]).parent, ignore_errors=True)
+            shutil.rmtree(pathlib.Path(merged_args["requirement_txt_file"]).parent, ignore_errors=True)
 
 
 def main():
