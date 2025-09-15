@@ -195,7 +195,8 @@ def get_packages_info(requirement_file, no_deps=False):
         return {
             "name": dist.metadata["name"],
             "version": dist.metadata["version"],
-            "location": str(dist.path),
+            # +++ THIS IS THE CORRECTED LINE +++
+            "location": str(dist.locate_file('')),
             "dependencies": dependencies,
             "licenses": licenses,
         }
