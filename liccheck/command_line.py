@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL VERSION 3.2.0
+# liccheck/command_line.py - FINAL VERSION 3.2.2
 
 import argparse
 import collections
@@ -18,7 +18,7 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "3.2.0"
+__version__ = "3.2.2"
 
 try:
     FileNotFoundError
@@ -28,13 +28,11 @@ except NameError:
 def normalize_license(text):
     if not isinstance(text, str): return "UNKNOWN"
     
-    # +++ FIX: Make heuristics more robust for different file formats +++
     if "::" in text:
         text = text.split("::")[-1].strip()
     text_lower = text.lower()
     
-    if 'permission is hereby granted' in text_lower and 'mit license' in text_lower: return 'MIT'
-    if 'permission is hereby granted' in text_lower: return 'MIT' # More permissive MIT check
+    if 'permission is hereby granted' in text_lower: return 'MIT'
     if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-3-Clause'
     if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-2-Clause'
     if 'bsd' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD'
@@ -176,8 +174,18 @@ def get_packages_info(requirement_file, no_deps=False):
 def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
     if pkg["name"].startswith("aifi-"):
         return Reason.OK
-    whitelisted = pkg["name"] in strategy.AUTHORIZED_PACKAGES and (semantic_version.SimpleSpec(strategy.AUTHORIZED_PACKAGES[pkg["name"]]).match(semantic_version.Version.coerce(pkg["version"])) or (level == Level.STANDARD and strategy.AUTHORIZED_PACKAGES[pkg["name"]] == ""))
-    if whitelisted: return Reason.OK
+        
+    if pkg["name"] in strategy.AUTHORIZED_PACKAGES:
+        version_spec = strategy.AUTHORIZED_PACKAGES[pkg["name"]]
+        # +++ FIX: Handle both empty string and '*' for "any version" +++
+        if not version_spec or version_spec == "*":
+            return Reason.OK
+        try:
+            if semantic_version.SimpleSpec(version_spec).match(semantic_version.Version.coerce(pkg["version"])):
+                return Reason.OK
+        except ValueError:
+            pass
+
     def check_one(license_str, license_rule="AUTHORIZED", as_regex=False):
         if as_regex:
             license_regex = getattr(strategy, "{}_REGEX".format(license_rule))
@@ -185,6 +193,7 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
         else:
             license_list = getattr(strategy, "{}_LICENSES".format(license_rule))
             return license_str in license_list
+            
     at_least_one_unauthorized = False
     count_authorized = 0
     licenses = get_license_names(pkg["licenses"])
@@ -292,7 +301,6 @@ def parse_args(args):
     parser.add_argument("-R", "--reporting", dest="reporting_txt_file", help="path/to/reporting.txt file", nargs="?", default=None)
     parser.add_argument("--no-deps", dest="no_deps", help="don't check dependencies", action="store_true")
     parser.add_argument("--as-regex", dest="as_regex", help="enable regular expression matching for licenses", action="store_true")
-    # +++ NEW ARGUMENT FOR DEPENDENCY PRINTOUT +++
     parser.add_argument("--dep-depth", type=int, default=1, help="Set dependency printout depth. 0=none, 1=direct parents (default), -1=full tree.")
     return parser.parse_args(args)
 
