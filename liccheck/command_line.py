@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL VERSION 1.3.0-debug
+# liccheck/command_line.py - FINAL VERSION 1.4.0-final
 
 import argparse
 import collections
@@ -16,43 +16,72 @@ import semantic_version
 import toml
 
 # Version identifier to make sure the correct script is running
-__version__ = "1.3.0-debug"
+__version__ = "1.4.0-final"
 
 try:
     FileNotFoundError
 except NameError:
     FileNotFoundError = IOError
 
-# +++ NEW, MODERNIZED HELPER FUNCTIONS +++
+# +++ NEW HELPER: NORMALIZE LICENSE TEXT +++
+def normalize_license(text):
+    """
+    Tries to identify a standard license name from a string, which could be
+    a short name or the full license text.
+    """
+    if not isinstance(text, str):
+        return "UNKNOWN"
+        
+    text_lower = text.lower()
+
+    # If it's already a short, standard identifier, just clean it up.
+    if len(text) < 40:
+        if 'mit' in text_lower: return 'MIT'
+        if 'bsd' in text_lower: return 'BSD'
+        if 'apache' in text_lower: return 'Apache-2.0'
+        if 'mpl' in text_lower: return 'MPL-2.0'
+        if 'isc' in text_lower: return 'ISC'
+        return text.strip() # Return as is
+
+    # Heuristics to identify licenses from their full text content.
+    if 'mit license' in text_lower and 'permission is hereby granted' in text_lower:
+        return 'MIT'
+    if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower:
+        return 'BSD-3-Clause'
+    if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower:
+        return 'BSD-2-Clause'
+    if 'bsd' in text_lower and 'redistribution and use in source' in text_lower:
+        return 'BSD' # Generic BSD fallback
+    if 'apache license' in text_lower and 'version 2.0' in text_lower:
+        return 'Apache-2.0'
+    if 'mozilla public license' in text_lower and 'version 2.0' in text_lower:
+        return 'MPL-2.0'
+    if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower:
+        return 'ISC'
+
+    # If we can't identify it, return the first line as a guess.
+    return text.splitlines()[0].strip()
+
+# +++ MODERNIZED HELPER FUNCTIONS +++
 def get_licenses_from_classifiers(dist):
-    """
-    Get licenses from classifiers using the modern metadata object.
-    """
     licenses = []
     for classifier in dist.metadata.get_all("Classifier", []):
         if classifier.startswith("License ::"):
             licenses.append(classifier.split("::")[-1].strip())
     return licenses
 
-
 def get_license(dist):
-    """
-    Get license from distribution using the modern metadata object.
-    """
     license_str = dist.metadata.get("License")
     if license_str and license_str.strip() and license_str.strip().lower() != "unknown":
         return [license_str]
-
     try:
         if dist.files:
             for file in dist.files:
-                if file.name.upper() in ("LICENSE", "LICENSE.TXT", "LICENSE.RST", "COPYING"):
+                if file.name.upper() in ("LICENSE", "LICENSE.TXT", "LICENSE.RST", "COPYING", "LICENSE.MD"):
                     return [dist.read_text(file.name)]
     except Exception:
         pass
-
     return []
-# +++ END OF NEW FUNCTIONS +++
 
 
 class NoValidConfigurationInPyprojectToml(BaseException):
@@ -105,17 +134,11 @@ class Strategy:
     @classmethod
     def from_pyproject_toml(cls):
         liccheck_section = from_pyproject_toml()
-
         def elements_to_lower_str(lst):
             return [str(_).lower() for _ in lst]
-
         strategy = cls(
-            authorized_licenses=elements_to_lower_str(
-                liccheck_section.get("authorized_licenses", [])
-            ),
-            unauthorized_licenses=elements_to_lower_str(
-                liccheck_section.get("unauthorized_licenses", [])
-            ),
+            authorized_licenses=elements_to_lower_str(liccheck_section.get("authorized_licenses", [])),
+            unauthorized_licenses=elements_to_lower_str(liccheck_section.get("unauthorized_licenses", [])),
             authorized_packages=liccheck_section.get("authorized_packages", dict()),
         )
         return strategy
@@ -125,19 +148,16 @@ class Strategy:
         config = ConfigParser()
         config.optionxform = str
         config.read(strategy_file)
-
         def get_config_list(section, option):
             try:
                 value = config.get(section, option)
             except NoOptionError:
                 return []
             return [item for item in value.lower().split("\n") if item]
-
         authorized_packages = dict()
         if config.has_section("Authorized Packages"):
             for name, value in config.items("Authorized Packages"):
                 authorized_packages[name] = value
-
         strategy = cls(
             authorized_licenses=get_config_list("Licenses", "authorized_licenses"),
             unauthorized_licenses=get_config_list("Licenses", "unauthorized_licenses"),
@@ -160,7 +180,6 @@ class Level(enum.Enum):
             if member.name.startswith(value.upper()):
                 return member
         raise ValueError("No level starting with {!r}".format(value))
-
     def __str__(self):
         return self.name
 
@@ -177,14 +196,19 @@ def get_packages_info(requirement_file, no_deps=False):
     def transform(dist):
         raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
         licenses = [lic for lic in raw_licenses if lic]
-        licenses = list(set([strip_license_for_windows(l) for l in licenses]))
-        licenses = list(set([strip_license(l) for l in licenses]))
+
+        # +++ USE THE NORMALIZER +++
+        normalized_licenses = set()
+        for lic in licenses:
+            normalized_licenses.add(normalize_license(lic))
+        
+        final_licenses = list(set([strip_license(l) for l in normalized_licenses if l]))
 
         dependencies = []
         requires = dist.metadata.get_all("Requires-Dist")
         if requires:
             for req in requires:
-                match = re.match(r"^[a-zA-Z0-N._-]+", req)
+                match = re.match(r"^[a-zA-Z0-9._-]+", req)
                 if match:
                     dependencies.append(match.group(0))
         
@@ -193,7 +217,7 @@ def get_packages_info(requirement_file, no_deps=False):
             "version": dist.metadata["version"],
             "location": str(dist.locate_file('')),
             "dependencies": dependencies,
-            "licenses": licenses,
+            "licenses": final_licenses,
         }
 
     def strip_license_for_windows(license_str):
@@ -210,7 +234,6 @@ def get_packages_info(requirement_file, no_deps=False):
     packages = [transform(dist) for dist in resolve_func(requirements)]
     unique = []
     [unique.append(item) for item in packages if item not in unique]
-
     return sorted(unique, key=(lambda item: item["name"].lower()))
 
 
@@ -394,23 +417,14 @@ def parse_args(args):
         description="Check license of packages and their dependencies.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    # ADDED --version FLAG AS REQUESTED
     parser.add_argument(
         "-v", "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.add_argument(
-        "-s",
-        "--sfile",
-        dest="strategy_ini_file",
-        help="strategy ini file",
-        default="./liccheck.ini",
+        "-s", "--sfile", dest="strategy_ini_file", help="strategy ini file", default="./liccheck.ini",
     )
     parser.add_argument(
-        "-l",
-        "--level",
-        choices=Level,
-        default=Level.STANDARD,
-        type=Level.starting,
+        "-l", "--level", choices=Level, default=Level.STANDARD, type=Level.starting,
         help=textwrap.dedent(
             """\
             Level for testing compliance of packages, where:
@@ -421,32 +435,16 @@ def parse_args(args):
         ),
     )
     parser.add_argument(
-        "-r",
-        "--rfile",
-        dest="requirement_txt_file",
-        help="path/to/requirement.txt file",
-        nargs="?",
-        default="./requirements.txt",
+        "-r", "--rfile", dest="requirement_txt_file", help="path/to/requirement.txt file", nargs="?", default="./requirements.txt",
     )
     parser.add_argument(
-        "-R",
-        "--reporting",
-        dest="reporting_txt_file",
-        help="path/to/reporting.txt file",
-        nargs="?",
-        default=None,
+        "-R", "--reporting", dest="reporting_txt_file", help="path/to/reporting.txt file", nargs="?", default=None,
     )
     parser.add_argument(
-        "--no-deps",
-        dest="no_deps",
-        help="don't check dependencies",
-        action="store_true",
+        "--no-deps", dest="no_deps", help="don't check dependencies", action="store_true",
     )
     parser.add_argument(
-        "--as-regex",
-        dest="as_regex",
-        help="enable regular expression matching for licenses",
-        action="store_true",
+        "--as-regex", dest="as_regex", help="enable regular expression matching for licenses", action="store_true",
     )
 
     return parser.parse_args(args)
@@ -459,18 +457,12 @@ def merge_args(args):
         return args
     return {
         "strategy_ini_file": config.get("strategy_ini_file", args["strategy_ini_file"]),
-        "requirement_txt_file": config.get(
-            "requirement_txt_file", args["requirement_txt_file"]
-        ),
+        "requirement_txt_file": config.get("requirement_txt_file", args["requirement_txt_file"]),
         "level": Level.starting(config.get("level", args["level"].value)),
-        "reporting_txt_file": config.get(
-            "reporting_txt_file", args["reporting_txt_file"]
-        ),
+        "reporting_txt_file": config.get("reporting_txt_file", args["reporting_txt_file"]),
         "no_deps": config.get("no_deps", args["no_deps"]),
         "dependencies": config.get("dependencies", args["dependencies"]),
-        "optional_dependencies": config.get(
-            "optional_dependencies", args["optional_dependencies"]
-        ),
+        "optional_dependencies": config.get("optional_dependencies", args["optional_dependencies"]),
         "as_regex": config.get("as_regex", args["as_regex"]),
     }
 
@@ -541,7 +533,6 @@ def run(args):
 
 
 def main():
-    # ADDED VERSION PRINTOUT FOR VERIFICATION
     print(f"liccheck version {__version__}")
     args = parse_args(sys.argv[1:])
     sys.exit(run(args))
