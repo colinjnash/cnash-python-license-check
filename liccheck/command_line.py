@@ -1,4 +1,4 @@
-
+# liccheck/command_line.py - DEBUGGING VERSION
 
 import argparse
 import collections
@@ -26,9 +26,8 @@ def get_licenses_from_classifiers(dist):
     Get licenses from classifiers using the modern metadata object.
     """
     licenses = []
-    # +++ THIS IS THE CORRECTED LINE (BROADER SEARCH) +++
     for classifier in dist.metadata.get_all("Classifier", []):
-        if classifier.startswith("License ::"): # Was "License :: OSI Approved ::"
+        if classifier.startswith("License ::"):
             licenses.append(classifier.split("::")[-1].strip())
     return licenses
 
@@ -123,7 +122,6 @@ class Strategy:
     @classmethod
     def from_config(cls, strategy_file):
         config = ConfigParser()
-        # keep case of options
         config.optionxform = str
         config.read(strategy_file)
 
@@ -157,7 +155,6 @@ class Level(enum.Enum):
 
     @classmethod
     def starting(cls, value):
-        """Return level starting with value (case-insensitive)"""
         for member in cls:
             if member.name.startswith(value.upper()):
                 return member
@@ -177,22 +174,37 @@ def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
 
     def transform(dist):
+        # +++ START DEBUGGING BLOCK +++
+        if dist.metadata['name'] == 'zipp':
+            print("\n--- DEBUGGING zipp ---")
+            print(f"Found package: {dist.metadata['name']}")
+            license_field = dist.metadata.get("License")
+            print(f"Metadata 'License' field: {license_field!r}")
+            all_classifiers = dist.metadata.get_all("Classifier", [])
+            print("All Classifiers:")
+            if all_classifiers:
+                for c in all_classifiers:
+                    print(f"  - {c}")
+            else:
+                print("  - NONE FOUND")
+            
+            result_get_license = get_license(dist)
+            print(f"Result from get_license(): {result_get_license}")
+
+            result_get_classifiers = get_licenses_from_classifiers(dist)
+            print(f"Result from get_licenses_from_classifiers(): {result_get_classifiers}")
+            print("--- END DEBUGGING zipp ---\n")
+        # +++ END DEBUGGING BLOCK +++
+
         raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
-        
-        # Filter out None or empty string licenses
         licenses = [lic for lic in raw_licenses if lic]
-        
-        # Removing Trailing windows generated \r
         licenses = list(set([strip_license_for_windows(l) for l in licenses]))
-        # Strip the useless "License" suffix and uniquify
         licenses = list(set([strip_license(l) for l in licenses]))
 
-        # Get dependencies from metadata
         dependencies = []
         requires = dist.metadata.get_all("Requires-Dist")
         if requires:
             for req in requires:
-                # Extract package name, ignoring version specs and environment markers
                 match = re.match(r"^[a-zA-Z0-9._-]+", req)
                 if match:
                     dependencies.append(match.group(0))
@@ -217,7 +229,6 @@ def get_packages_info(requirement_file, no_deps=False):
 
     resolve_func = resolve_without_deps if no_deps else resolve
     packages = [transform(dist) for dist in resolve_func(requirements)]
-    # keep only unique values as there are maybe some duplicates
     unique = []
     [unique.append(item) for item in packages if item not in unique]
 
@@ -246,17 +257,9 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
     count_authorized = 0
     licenses = get_license_names(pkg["licenses"])
     for license in licenses:
-        if check_one(
-            license,
-            license_rule="UNAUTHORIZED",
-            as_regex=as_regex,
-        ):
+        if check_one(license, license_rule="UNAUTHORIZED", as_regex=as_regex):
             at_least_one_unauthorized = True
-        if check_one(
-            license,
-            license_rule="AUTHORIZED",
-            as_regex=as_regex,
-        ):
+        if check_one(license, license_rule="AUTHORIZED", as_regex=as_regex):
             count_authorized += 1
 
     if (
@@ -274,7 +277,6 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
     ):
         return Reason.OK
 
-    # if not OK and at least one unauthorized
     if at_least_one_unauthorized:
         return Reason.UNAUTHORIZED
 
@@ -283,7 +285,7 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
 def get_license_names(licenses):
     names = []
     for license in licenses:
-        if not license:  # Defensively skip any None or empty string values
+        if not license:
             continue
         options = license.split(" OR ")
         for option in options:
@@ -327,7 +329,6 @@ def group_by(items, key):
     res = collections.defaultdict(list)
     for item in items:
         res[key(item)].append(item)
-
     return res
 
 
@@ -432,7 +433,7 @@ def parse_args(args):
             Level for testing compliance of packages, where:
               Standard - At least one authorized license (default);
               Cautious - Per standard but no unauthorized licenses;
-              Paranoid - All licenses must by authorized.
+              Paranoia - All licenses must by authorized.
         """
         ),
     )
