@@ -1,4 +1,4 @@
-# liccheck/command_line.py - DEBUGGING VERSION
+# liccheck/command_line.py - FINAL VERSION 1.3.0-debug
 
 import argparse
 import collections
@@ -14,6 +14,9 @@ import textwrap
 import sys
 import semantic_version
 import toml
+
+# Version identifier to make sure the correct script is running
+__version__ = "1.3.0-debug"
 
 try:
     FileNotFoundError
@@ -36,19 +39,17 @@ def get_license(dist):
     """
     Get license from distribution using the modern metadata object.
     """
-    # The primary way to get a license is from the "License" metadata field.
     license_str = dist.metadata.get("License")
     if license_str and license_str.strip() and license_str.strip().lower() != "unknown":
         return [license_str]
 
-    # As a fallback, try to read a license file directly from the package.
     try:
         if dist.files:
             for file in dist.files:
                 if file.name.upper() in ("LICENSE", "LICENSE.TXT", "LICENSE.RST", "COPYING"):
                     return [dist.read_text(file.name)]
     except Exception:
-        pass  # Ignore errors if files can't be read
+        pass
 
     return []
 # +++ END OF NEW FUNCTIONS +++
@@ -174,28 +175,6 @@ def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
 
     def transform(dist):
-        # +++ START DEBUGGING BLOCK +++
-        if dist.metadata['name'] == 'zipp':
-            print("\n--- DEBUGGING zipp ---")
-            print(f"Found package: {dist.metadata['name']}")
-            license_field = dist.metadata.get("License")
-            print(f"Metadata 'License' field: {license_field!r}")
-            all_classifiers = dist.metadata.get_all("Classifier", [])
-            print("All Classifiers:")
-            if all_classifiers:
-                for c in all_classifiers:
-                    print(f"  - {c}")
-            else:
-                print("  - NONE FOUND")
-            
-            result_get_license = get_license(dist)
-            print(f"Result from get_license(): {result_get_license}")
-
-            result_get_classifiers = get_licenses_from_classifiers(dist)
-            print(f"Result from get_licenses_from_classifiers(): {result_get_classifiers}")
-            print("--- END DEBUGGING zipp ---\n")
-        # +++ END DEBUGGING BLOCK +++
-
         raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or []
         licenses = [lic for lic in raw_licenses if lic]
         licenses = list(set([strip_license_for_windows(l) for l in licenses]))
@@ -205,7 +184,7 @@ def get_packages_info(requirement_file, no_deps=False):
         requires = dist.metadata.get_all("Requires-Dist")
         if requires:
             for req in requires:
-                match = re.match(r"^[a-zA-Z0-9._-]+", req)
+                match = re.match(r"^[a-zA-Z0-N._-]+", req)
                 if match:
                     dependencies.append(match.group(0))
         
@@ -415,6 +394,10 @@ def parse_args(args):
         description="Check license of packages and their dependencies.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    # ADDED --version FLAG AS REQUESTED
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument(
         "-s",
         "--sfile",
@@ -433,7 +416,7 @@ def parse_args(args):
             Level for testing compliance of packages, where:
               Standard - At least one authorized license (default);
               Cautious - Per standard but no unauthorized licenses;
-              Paranoia - All licenses must by authorized.
+              Paranoid - All licenses must by authorized.
         """
         ),
     )
@@ -558,6 +541,8 @@ def run(args):
 
 
 def main():
+    # ADDED VERSION PRINTOUT FOR VERIFICATION
+    print(f"liccheck version {__version__}")
     args = parse_args(sys.argv[1:])
     sys.exit(run(args))
 
