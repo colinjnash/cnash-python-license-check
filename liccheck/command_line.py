@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL VERSION 2.1.0
+# liccheck/command_line.py - FINAL VERSION 2.2.0
 
 import argparse
 import collections
@@ -15,7 +15,7 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 try:
     FileNotFoundError
@@ -23,8 +23,7 @@ except NameError:
     FileNotFoundError = IOError
 
 def normalize_license(text):
-    if not isinstance(text, str):
-        return "UNKNOWN"
+    if not isinstance(text, str): return "UNKNOWN"
     text_lower = text.lower()
     
     # Heuristics to identify licenses from their full text content.
@@ -35,7 +34,7 @@ def normalize_license(text):
     if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower:
         return 'BSD-2-Clause'
     if 'bsd' in text_lower and 'redistribution and use in source' in text_lower:
-        return 'BSD' # Generic BSD fallback
+        return 'BSD'
     if 'apache license' in text_lower and 'version 2.0' in text_lower:
         return 'Apache-2.0'
     if 'mozilla public license' in text_lower and 'version 2.0' in text_lower:
@@ -43,12 +42,14 @@ def normalize_license(text):
     if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower:
         return 'ISC'
 
-    # +++ FINAL IMPROVEMENT: If no match, return the first non-blank line as a guess. +++
-    for line in text.splitlines():
-        if line.strip():
-            return line.strip()
-
-    # If all lines are blank, then it's truly unknown.
+    # +++ FINAL IMPROVEMENT: If no match, search the first few lines for a name +++
+    # This handles files that start with a copyright line.
+    first_few_lines = " ".join(text.splitlines()[:5]).lower()
+    if 'mit license' in first_few_lines: return 'MIT'
+    if 'bsd license' in first_few_lines: return 'BSD'
+    if 'apache license' in first_few_lines: return 'Apache-2.0'
+    if 'isc license' in first_few_lines: return 'ISC'
+    
     return "UNKNOWN"
 
 def get_licenses_from_classifiers(dist):
