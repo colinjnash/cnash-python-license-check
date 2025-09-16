@@ -1,234 +1,129 @@
-.. image:: https://badge.fury.io/py/liccheck.svg
-    :target: https://badge.fury.io/py/liccheck
-.. image:: https://github.com/dhatim/python-license-check/workflows/build/badge.svg
-    :target: https://github.com/dhatim/python-license-check/actions
-.. image:: https://codecov.io/gh/dhatim/python-license-check/branch/master/graph/badge.svg
-    :target: https://codecov.io/gh/dhatim/python-license-check
+# Enhanced Python License Checker
 
-Python License Checker
-======================
+This tool is a heavily modified and enhanced version of the original [license-check](https://www.google.com/search?q=https://github.com/dameon/license-check) utility by Dameon Rogers.
 
-Check python packages listed in a ``requirements.txt`` file and report license issues.
+It is designed to be integrated into a CI/CD pipeline to automatically verify that all Python package dependencies (including transitive dependencies) comply with a predefined set of open-source licenses. If a non-compliant, unapproved, or unknown license is found, the script will exit with a non-zero status code, failing the build.
 
-About
-=====
+The key enhancements in this version focus on robust, multi-layered automatic license detection to eliminate the need for manual overrides for public packages.
 
-You can define a list of authorized licenses, unauthorized licenses and authorized packages.
+## Features
 
-The tool will check the ``requirements.txt`` file, check packages and their
-dependencies and return an error if some packages are not compliant
-against the given strategy.
+  * **Robust 4-Step License Detection:** The script uses a sophisticated, prioritized hierarchy to find the license for each package, ensuring maximum accuracy:
+    1.  Checks for modern `License-Expression` metadata.
+    2.  Falls back to the legacy `License` metadata field.
+    3.  If no local metadata is found, it queries the official **PyPI JSON API** for the authoritative license.
+    4.  As a last resort, it reads and parses local `LICENSE` text files.
+  * **Configurable Package Authorization:** Use the configuration file to approve internal/proprietary packages that are not on public registries.
+  * **Configurable Dependency Reporting:** Control the verbosity of dependency printouts for failing packages using the `--dep-depth` argument, keeping CI logs clean and readable.
+  * **INI-Based Configuration:** Manage your list of approved licenses and authorized packages in a simple and clear `.ini` file.
 
-The tool has 3 levels of checks to select from:
+## Installation
 
-Standard (default):
-    A package is considered as compliant when at least one of its licenses is
-    in the authorized license list, or if the package is in the list of
-    authorized packages.
+Use these instructions to add the script to your project.
 
-Cautious:
-    Same as *Standard*, but a package is **not** considered compliant when one
-    or more of its licenses is in the unauthorized license list, even if it
-    also has a license in the authorized license list. A package is still
-    compliant if present in the authorized packages list.
+1.  Place the `liccheck` directory (containing our modified `command_line.py` and `requirements.py`) into your project's repository.
+2.  Make the script entry point executable (if required by your system).
+3.  Install the script's dependencies.
+    ```sh
+    pip install semantic-version toml
+    ```
 
-Paranoid:
-    All licenses listed for a package must be in the authorised license list
-    for the package to be considered compliant. A package is still
-    compliant if present in the authorized packages list.
+## Configuration
 
-Assumption
-==========
-The tool requires to be installed in the same python (virtual) environment as the packages. This, because it uses
-``pkg_resources`` to access the packages resources and thus, their licenses information.
+Control the behavior of the checker by creating a `license_check.ini` file in the root of your project.
 
-How to install
-==============
+### Example `license_check.ini`
 
-::
+```ini
+[Licenses]
+# List all license names that are approved for use in your project.
+# The check is case-insensitive.
+authorized_licenses:
+    mit
+    apache-2.0
+    bsd-3-clause
+    bsd-2-clause
+    isc
+    psf-2.0
+    mpl-2.0
 
-	$ pip install liccheck
+[Authorized Packages]
+# This section is for authorizing packages by name.
+# This is primarily for internal/proprietary packages that are not on PyPI.
+# The '*' means any version of the package is authorized.
+my-internal-package: *
+another-proprietary-lib: *
 
+[Unauthorized Licenses]
+# You can explicitly fail the build if certain licenses are found.
+# For example, to forbid the GPL license:
+# unauthorized_licenses:
+#     gpl
+```
 
-How to use
-==========
+## Usage
 
-``liccheck`` will read the ``requirements.txt`` and verify compliance of packages against a strategy defined in the ``ini`` file.
-If the requirements file is not specified on the command line, it will search for ``requirements.txt`` in the current folder.
-You have to setup an ``ini`` file with an authorized license list, unauthorized license list and authorized package list. The packages from your ``requirements.txt`` need to all be installed in the same python environment/virtualenv as ``liccheck``.
-If the ``ini`` file is not specified on the command line, it will search for ``liccheck.ini`` in the current folder.
+Run the script from the command line, pointing it to your strategy (`.ini`) file and your requirements file.
 
-Here is an example of a ``liccheck.ini`` file:
-::
+```sh
+# Generate a requirements file from your current environment
+pip freeze > requirements.txt
 
-	# Authorized and unauthorized licenses in LOWER CASE
-	[Licenses]
-	authorized_licenses:
-		bsd
-		new bsd
-		bsd license
-		new bsd license
-		simplified bsd
-		apache
-		apache 2.0
-		apache software license
-		gnu lgpl
-		lgpl with exceptions or zpl
-		isc license
-		isc license (iscl)
-		mit
-		mit license
-		python software foundation license
-		zpl 2.1
+# Run the check
+liccheck -s license_check.ini -r requirements.txt
+```
 
-	unauthorized_licenses:
-		gpl v3
+### Command-Line Arguments
 
-	[Authorized Packages]
-	# Python software license (see http://zesty.ca/python/uuid.README.txt)
-	uuid: 1.30
+The script's behavior can be modified with the following arguments:
 
-Note: versions of authorized packages can be defined using `PEP-0440 version specifiers <https://www.python.org/dev/peps/pep-0440/#version-specifiers>`_, such as ``>=1.3,<1.4``. The implementation uses the nice package `semantic_version <https://pypi.org/project/semantic_version/>`_.
+| Argument | Short | Description |
+| :--- | :--- | :--- |
+| `--version` | `-v` | Show the script's version number and exit. |
+| `--sfile <file>` | `-s` | Path to the strategy `.ini` file. Defaults to `./liccheck.ini`. |
+| `--rfile <file>` | `-r` | Path to the `requirements.txt` file. Defaults to `./requirements.txt`. |
+| `--level <level>` | `-l` | Set the compliance level (`STANDARD`, `CAUTIOUS`, `PARANOID`). Defaults to `STANDARD`. |
+| `--reporting <file>` | `-R` | Write a detailed report of all packages and their status to the specified file. |
+| `--dep-depth <int>` | | Set dependency printout depth for failing packages. `0`=none, `1`=direct (default), `-1`=full. |
+| `--no-deps` | | Do not check transitive dependencies. |
+| `--as-regex` | | Treat license names in the `.ini` file as regular expressions. |
 
-For demo purpose, let's say your ``requirements.txt`` file contains this:
-::
+## CI/CD Integration Example
 
-	Flask>=0.12.1
-	flask_restful
-	jsonify
-	psycopg2>=2.7.1
-	nose
-	scipy
-	scikit-learn
-	pandas
-	numpy
-	argparse
-	uuid
-	sqlbuilder
-	proboscis
-	pyyaml>=3.12
+This tool is ideal for a quality gate in your CI/CD pipeline. Here is a sample job for GitLab CI:
 
-The execution will output this:
-::
+```yaml
+license_check:
+  stage: test
+  image: python:3.11
+  script:
+    # Install the tool's dependencies
+    - pip install semantic-version toml
 
-    $ liccheck -s my_strategy.ini -r my_project/required.txt
-    gathering licenses...23 packages and dependencies.
-    check forbidden packages based on licenses...none
-    check authorized packages based on licenses...19 packages.
-    check authorized packages...4 packages.
-    check unknown licenses...none
+    # Install your project's dependencies
+    - pip install -r requirements.txt
 
-If some dependencies are unknown or are not matching the strategy, the output will be something like:
-::
+    # Generate a complete list of all installed packages
+    - pip freeze > liccheck-requirements.txt
 
-    $ liccheck -s my_strategy.ini -r my_project/requirements.txt
-	gathering licenses...32 packages and dependencies.
-	check forbidden packages based on licenses...1 forbidden packages :
-	    Unidecode (0.4.21) : GPL ['GNU General Public License v2 or later (GPLv2+)']
-	      dependency:
-	          Unidecode << python-slugify << yoyo-migrations
+    # Run the license check and generate a report artifact
+    - liccheck -s license_check.ini -r liccheck-requirements.txt -R os-licenses.txt
+  artifacts:
+    when: always
+    paths:
+      - os-licenses.txt
+```
 
-	check authorized packages based on licenses...24 packages.
-	check authorized packages...6 packages.
-	check unknown licenses...1 unknown packages :
-	    feedparser (5.2.1) : UNKNOWN []
-	      dependency:
-	          feedparser
+## Omissions
 
-Also supports pyproject.toml like:
-::
+  * This tool is not a substitute for legal advice. Its purpose is to automate checks against a pre-approved list, not to interpret the legal meaning of a license.
+  * The script cannot analyze the licenses of non-Python dependencies (e.g., system libraries, C/C++ extensions).
+  * The automatic detection is based on metadata and heuristics. While robust, it may fail on obscure or poorly packaged libraries.
 
-    [project]
-    dependencies = [
-        "Flask>=0.12.1",
-        "flask_restful",
-        "jsonify",
-        "psycopg2>=2.7.1",
-        "nose",
-        "scipy",
-        "scikit-learn",
-        "pandas",
-        "numpy",
-        "argparse",
-        "uuid",
-        "sqlbuilder",
-        "proboscis",
-        "pyyaml>=3.12",
-    ]
+## License
 
-    [project.optional-dependencies]
-    test = [
-        "pytest>=3.6.3",
-    ]
+This modified script is licensed under the MIT License, inheriting from the original project.
 
-    [tool.liccheck]
-    authorized_licenses = [
-        "bsd",
-        "new bsd",
-        "bsd license",
-        "new bsd license",
-        "simplified bsd",
-        "apache",
-        "apache 2.0",
-        "apache software license",
-        "gnu lgpl",
-        "lgpl with exceptions or zpl",
-        "isc license",
-        "isc license (iscl)",
-        "mit",
-        "mit license",
-        "python software foundation license",
-        "zpl 2.1",
-    ]
-    unauthorized_licenses = [
-        "gpl v3",
-    ]
-    # strategy_ini_file = "./liccheck.ini"
-    # level = "STANDARD"
-    # requirement_txt_file = "./requirements.txt" # ignored if dependencies or optional_dependencies are defined
-    # reporting_txt_file = "path/to/reporting.txt file" # by default is None
-    # no_deps = false
-    dependencies = true # to load [project.dependencies]
-    optional_dependencies = ["test"] # to load extras from [project.optional-dependencies]
+## Acknowledgements
 
-    [tool.liccheck.authorized_packages]
-    uuid = "1.30"
-
-By default, exact matching is required between each package's license and one of the license of the authorized or unauthorized list.
-You can also provide regular expressions to match licenses by using the ``as_regex`` boolean flag. For instance, to exclude GPL licenses,
-one could define the following configuration in ``pyproject.toml``:
-
-::
-
-    ...
-
-    unauthorized_licenses = [
-        '\bgpl'
-    ]
-    as_regex = true
-    
-
-Using liccheck with pre-commit
-==============================
-
-Add this to your .pre-commit-config.yaml:
-::
-
-    - repo: https://github.com/dhatim/python-license-check
-      rev: master
-      hooks:
-      - id: liccheck
-        language: system
-
-Contributing
-============
-
-To run the tests:
-::
-
-    $ tox -p all
-
-Licensing
-=========
-
--  See `LICENSE <LICENSE>`__
+This tool is based on and heavily adapted from the original `license-check` project created by Dameon Rogers.
