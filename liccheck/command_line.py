@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL VERSION 3.2.2
+# liccheck/command_line.py - FINAL VERSION 4.0.0
 
 import argparse
 import collections
@@ -18,7 +18,7 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "3.2.2"
+__version__ = "4.0.0"
 
 try:
     FileNotFoundError
@@ -27,11 +27,8 @@ except NameError:
 
 def normalize_license(text):
     if not isinstance(text, str): return "UNKNOWN"
-    
-    if "::" in text:
-        text = text.split("::")[-1].strip()
+    if "::" in text: text = text.split("::")[-1].strip()
     text_lower = text.lower()
-    
     if 'permission is hereby granted' in text_lower: return 'MIT'
     if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-3-Clause'
     if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-2-Clause'
@@ -39,14 +36,12 @@ def normalize_license(text):
     if 'apache license' in text_lower and 'version 2.0' in text_lower: return 'Apache-2.0'
     if 'mozilla public license' in text_lower and 'version 2.0' in text_lower: return 'MPL-2.0'
     if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower: return 'ISC'
-
     if len(text) < 40: return text.strip()
     first_few_lines = " ".join(text.splitlines()[:5]).lower()
     if 'mit license' in first_few_lines: return 'MIT'
     if 'bsd license' in first_few_lines: return 'BSD'
     if 'apache license' in first_few_lines: return 'Apache-2.0'
     if 'isc license' in first_few_lines: return 'ISC'
-    
     return "UNKNOWN"
 
 def get_license_from_pypi(package_name):
@@ -69,11 +64,14 @@ def get_licenses_from_classifiers(dist):
             licenses.append(classifier.split("::")[-1].strip())
     return licenses
 
-def get_license(dist):
+def get_license_metadata_only(dist):
     license_expr = dist.metadata.get("License-Expression")
     if license_expr and license_expr.strip().lower() != "unknown": return [license_expr]
     license_str = dist.metadata.get("License")
     if license_str and license_str.strip().lower() != "unknown": return [license_str]
+    return []
+
+def get_license_file_only(dist):
     try:
         if dist.files:
             for file in dist.files:
@@ -146,7 +144,9 @@ class Reason(enum.Enum):
 def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
     def transform(dist):
-        raw_licenses = get_license(dist) or get_licenses_from_classifiers(dist) or get_license_from_pypi(dist.metadata["name"]) or []
+        # The new 4-step detection logic in the correct order of priority
+        raw_licenses = get_license_metadata_only(dist) or get_license_from_pypi(dist.metadata["name"]) or get_licenses_from_classifiers(dist) or get_license_file_only(dist) or []
+        
         licenses = [lic for lic in raw_licenses if lic]
         normalized_licenses = set()
         for lic in licenses:
@@ -172,12 +172,8 @@ def get_packages_info(requirement_file, no_deps=False):
 
 
 def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
-    if pkg["name"].startswith("aifi-"):
-        return Reason.OK
-        
     if pkg["name"] in strategy.AUTHORIZED_PACKAGES:
         version_spec = strategy.AUTHORIZED_PACKAGES[pkg["name"]]
-        # +++ FIX: Handle both empty string and '*' for "any version" +++
         if not version_spec or version_spec == "*":
             return Reason.OK
         try:
