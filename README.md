@@ -120,7 +120,7 @@ license_check:
   * The script cannot analyze the licenses of non-Python dependencies (e.g., system libraries, C/C++ extensions).
   * The automatic detection is based on metadata and heuristics. While robust, it may fail on obscure or poorly packaged libraries.
 
-License
+## License
 
 This modified script is licensed under the Apache License 2.0, inheriting from the original project.
 
