@@ -1,129 +1,109 @@
-# Enhanced Python License Checker
+"""A setuptools based setup module.
 
-This tool is a heavily modified and enhanced version of the original [license-check](https://www.google.com/search?q=https://github.com/dameon/license-check) utility by Dameon Rogers.
+See:
+https://packaging.python.org/en/latest/distributing.html
+https://github.com/pypa/sampleproject
+"""
 
-It is designed to be integrated into a CI/CD pipeline to automatically verify that all Python package dependencies (including transitive dependencies) comply with a predefined set of open-source licenses. If a non-compliant, unapproved, or unknown license is found, the script will exit with a non-zero status code, failing the build.
+# To use a consistent encoding
 
-The key enhancements in this version focus on robust, multi-layered automatic license detection to eliminate the need for manual overrides for public packages.
+from codecs import open
+from os import path, environ
 
-## Features
+# Always prefer setuptools over distutils
 
-- **Robust 4-Step License Detection:** The script uses a sophisticated, prioritized hierarchy to find the license for each package, ensuring maximum accuracy:
-  1.  Checks for modern `License-Expression` metadata.
-  2.  Falls back to the legacy `License` metadata field.
-  3.  If no local metadata is found, it queries the official **PyPI JSON API** for the authoritative license.
-  4.  As a last resort, it reads and parses local `LICENSE` text files.
-- **Configurable Package Authorization:** Use the configuration file to approve internal/proprietary packages that are not on public registries.
-- **Configurable Dependency Reporting:** Control the verbosity of dependency printouts for failing packages using the `--dep-depth` argument, keeping CI logs clean and readable.
-- **INI-Based Configuration:** Manage your list of approved licenses and authorized packages in a simple and clear `.ini` file.
+from setuptools import setup
 
-## Installation
+here = path.abspath(path.dirname(**file**))
 
-Use these instructions to add the script to your project.
+# Get the long description from the README file
 
-1.  Place the `liccheck` directory (containing our modified `command_line.py` and `requirements.py`) into your project's repository.
-2.  Make the script entry point executable (if required by your system).
-3.  Install the script's dependencies.
-    ```sh
-    pip install semantic-version toml
-    ```
+# This was changed from README.rst to README.md to match your repository
 
-## Configuration
+with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+long_description = f.read()
 
-Control the behavior of the checker by creating a `license_check.ini` file in the root of your project.
+setup(
+name='liccheck',
 
-### Example `license_check.ini`
+    # Versions should comply with PEP440.  For a discussion on single-sourcing
+    # the version across setup.py and the project code, see
+    # https://packaging.python.org/en/latest/single_source_version.html
+    version='0.9.3',
 
-```ini
-[Licenses]
-# List all license names that are approved for use in your project.
-# The check is case-insensitive.
-authorized_licenses:
-    mit
-    apache-2.0
-    bsd-3-clause
-    bsd-2-clause
-    isc
-    psf-2.0
-    mpl-2.0
+    description='Check python packages from requirement.txt and report issues',
+    long_description=long_description,
+    long_description_content_type='text/markdown',  # Added for correct rendering on PyPI
 
-[Authorized Packages]
-# This section is for authorizing packages by name.
-# This is primarily for internal/proprietary packages that are not on PyPI.
-# The '*' means any version of the package is authorized.
-my-internal-package: *
-another-proprietary-lib: *
+    # The project's main homepage.
+    url='https://github.com/dhatim/python-license-check',
 
-[Unauthorized Licenses]
-# You can explicitly fail the build if certain licenses are found.
-# For example, to forbid the GPL license:
-# unauthorized_licenses:
-#     gpl
-```
+    # Author details
+    author='Dhatim',
+    author_email='contact@dhatim.com',
 
-## Usage
+    # Choose your license
+    license='Apache Software License',
 
-Run the script from the command line, pointing it to your strategy (`.ini`) file and your requirements file.
+    # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
+    classifiers=[
+        # How mature is this project? Common values are
+        #   3 - Alpha
+        #   4 - Beta
+        #   5 - Production/Stable
+        'Development Status :: 5 - Production/Stable',
 
-```sh
-# Generate a requirements file from your current environment
-pip freeze > requirements.txt
+        # Indicate who your project is intended for
+        'Intended Audience :: Developers',
+        'Topic :: Software Development :: Build Tools',
 
-# Run the check
-liccheck -s license_check.ini -r requirements.txt
-```
+        # Pick your license as you wish (should match "license" above)
+        'License :: OSI Approved :: Apache Software License',
 
-### Command-Line Arguments
+        # Specify the Python versions you support here. In particular, ensure
+        # that you indicate whether you support Python 2, Python 3 or both.
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8'
+    ],
 
-The script's behavior can be modified with the following arguments:
+    # What does your project relate to?
+    keywords='license check build tool',
 
-| Argument             | Short | Description                                                                                    |
-| :------------------- | :---- | :--------------------------------------------------------------------------------------------- |
-| `--version`          | `-v`  | Show the script's version number and exit.                                                     |
-| `--sfile <file>`     | `-s`  | Path to the strategy `.ini` file. Defaults to `./liccheck.ini`.                                |
-| `--rfile <file>`     | `-r`  | Path to the `requirements.txt` file. Defaults to `./requirements.txt`.                         |
-| `--level <level>`    | `-l`  | Set the compliance level (`STANDARD`, `CAUTIOUS`, `PARANOID`). Defaults to `STANDARD`.         |
-| `--reporting <file>` | `-R`  | Write a detailed report of all packages and their status to the specified file.                |
-| `--dep-depth <int>`  |       | Set dependency printout depth for failing packages. `0`=none, `1`=direct (default), `-1`=full. |
-| `--no-deps`          |       | Do not check transitive dependencies.                                                          |
-| `--as-regex`         |       | Treat license names in the `.ini` file as regular expressions.                                 |
+    # You can just specify the packages manually here if your project is
+    # simple. Or you can use find_packages().
+    packages=['liccheck'],
 
-## CI/CD Integration Example
+    # Alternatively, if you want to distribute just a my_module.py, uncomment
+    # this:
+    #   py_modules=["my_module"],
 
-This tool is ideal for a quality gate in your CI/CD pipeline. Here is a sample job for GitLab CI:
+    python_requires='>=3.5',
 
-```yaml
-license_check:
-  stage: test
-  image: python:3.11
-  script:
-    # Install the tool's dependencies
-    - pip install semantic-version toml
+    install_requires=['semantic_version>=2.7.0', 'toml'],
 
-    # Install your project's dependencies
-    - pip install -r requirements.txt
+    # If there are data files included in your packages that need to be
+    # installed, specify them here.  If using Python 2.6 or less, then these
+    # have to be included in MANIFEST.in as well.
+    # package_data={
+    #    'sample': ['package_data.dat'],
+    # },
 
-    # Generate a complete list of all installed packages
-    - pip freeze > liccheck-requirements.txt
+    # Although 'package_data' is the preferred approach, in some case you may
+    # need to place data files outside of your packages. See:
+    # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
+    # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
+    # data_files=[('my_data', ['data/data_file'])],
 
-    # Run the license check and generate a report artifact
-    - liccheck -s license_check.ini -r liccheck-requirements.txt -R os-licenses.txt
-  artifacts:
-    when: always
-    paths:
-      - os-licenses.txt
-```
+    # To provide executable scripts, use entry points in preference to the
+    # "scripts" keyword. Entry points provide cross-platform support and allow
+    # pip to create the appropriate form of executable for the target platform.
+    entry_points={
+        'console_scripts': [
+            'liccheck=liccheck.command_line:main'
+        ],
+    },
 
-## Omissions
-
-- This tool is not a substitute for legal advice. Its purpose is to automate checks against a pre-approved list, not to interpret the legal meaning of a license.
-- The script cannot analyze the licenses of non-Python dependencies (e.g., system libraries, C/C++ extensions).
-- The automatic detection is based on metadata and heuristics. While robust, it may fail on obscure or poorly packaged libraries.
-
-## License
-
-This modified script is licensed under the Apache License 2.0, inheriting from the original project.
-
-## Acknowledgements
-
-This tool is based on and heavily adapted from the original `license-check` project created by Dameon Rogers.
+)
