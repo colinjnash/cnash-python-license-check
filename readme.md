@@ -1,109 +1,175 @@
-"""A setuptools based setup module.
+# `liccheck` (v4.0.0)
 
-See:
-https://packaging.python.org/en/latest/distributing.html
-https://github.com/pypa/sampleproject
-"""
+A tool to check the licenses of your Python dependencies against a defined strategy.
 
-# To use a consistent encoding
+This is a modernized fork of the original `dhatim/python-license-check` tool, updated with `pyproject.toml` support, improved dependency resolution using `importlib.metadata`, and a more robust license detection strategy.
 
-from codecs import open
-from os import path, environ
+## Key Features
 
-# Always prefer setuptools over distutils
+- **Modern Configuration:** Configure the tool directly in your `pyproject.toml` under the `[tool.liccheck]` section. Legacy `liccheck.ini` files are still supported.
+- **`pyproject.toml` Dependency Source:** Automatically find and check dependencies from your `[project.dependencies]` or `[tool.poetry.dependencies]` sections, including optional dependency groups.
+- **Improved License Detection:** Uses a more reliable 4-step process to find a package's license:
+  1.  Reads `License-Expression` or `License` from package metadata.
+  2.  Fetches license info from the **PyPI JSON API** as a fallback.
+  3.  Checks `Classifier` metadata.
+  4.  Reads common `LICENSE` files (`LICENSE`, `LICENSE.MD`, `COPYING`, etc.) as a last resort.
+- **Full Environment Scanning:** By default, `liccheck` now scans your _entire_ Python environment to find all installed packages and their transitive dependencies, ensuring nothing is missed. You can revert to the old behavior (`--no-deps`) to check only top-level packages.
+- **Better Dependency Reporting:** Use the `--dep-depth` flag to control how dependency trees are printed for packages with problematic licenses.
 
-from setuptools import setup
+## Installation
 
-here = path.abspath(path.dirname(**file**))
+```bash
+# Install from source
+git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+cd your-repo-name
+pip install .
 
-# Get the long description from the README file
+# Or install directly from your Git repository
+pip install git+[https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+```
 
-# This was changed from README.rst to README.md to match your repository
+## Usage
 
-with open(path.join(here, 'README.md'), encoding='utf-8') as f:
-long_description = f.read()
+`liccheck` works by comparing your installed packages against a "strategy" that defines authorized and unauthorized licenses.
 
-setup(
-name='liccheck',
+### 1\. Configure Your Strategy
 
-    # Versions should comply with PEP440.  For a discussion on single-sourcing
-    # the version across setup.py and the project code, see
-    # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.9.3',
+You can configure `liccheck` in two ways. Using `pyproject.toml` is recommended.
 
-    description='Check python packages from requirement.txt and report issues',
-    long_description=long_description,
-    long_description_content_type='text/markdown',  # Added for correct rendering on PyPI
+#### Recommended: `pyproject.toml`
 
-    # The project's main homepage.
-    url='https://github.com/dhatim/python-license-check',
+Add a `[tool.liccheck]` section to your `pyproject.toml` file. `liccheck` will automatically find and use this configuration.
 
-    # Author details
-    author='Dhatim',
-    author_email='contact@dhatim.com',
+```toml
 
-    # Choose your license
-    license='Apache Software License',
+[tool.liccheck]
+# --- Dependency Source ---
+# Automatically find dependencies from this pyproject.toml
+dependencies = true
+# Optionally include dependency groups (e.g., [project.optional-dependencies])
+# Use ["*"] to check all optional dependencies
+optional_dependencies = ["dev", "test"]
 
-    # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
-    classifiers=[
-        # How mature is this project? Common values are
-        #   3 - Alpha
-        #   4 - Beta
-        #   5 - Production/Stable
-        'Development Status :: 5 - Production/Stable',
+# (Alternative) If not using the settings above, specify a requirements file
+# requirement_txt_file = "requirements.txt"
 
-        # Indicate who your project is intended for
-        'Intended Audience :: Developers',
-        'Topic :: Software Development :: Build Tools',
+# --- Check Strategy ---
+# One of: STANDARD, CAUTIOUS, PARANOID (see "Compliance Levels" below)
+level = "CAUTIOUS"
 
-        # Pick your license as you wish (should match "license" above)
-        'License :: OSI Approved :: Apache Software License',
+# Enable regex matching for license names
+as_regex = false
 
-        # Specify the Python versions you support here. In particular, ensure
-        # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8'
-    ],
+# How to display dependency trees for failures
+# 0 = no dependencies, 1 = direct parents, -1 = full tree
+dep_depth = 1
 
-    # What does your project relate to?
-    keywords='license check build tool',
+# --- License Lists ---
+authorized_licenses = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+]
 
-    # You can just specify the packages manually here if your project is
-    # simple. Or you can use find_packages().
-    packages=['liccheck'],
+unauthorized_licenses = [
+    "GPL.*", # Requires as_regex = true
+    "AGPL-3.0-only",
+]
 
-    # Alternatively, if you want to distribute just a my_module.py, uncomment
-    # this:
-    #   py_modules=["my_module"],
+# --- Package-Specific Overrides ---
+[tool.liccheck.authorized_packages]
+# Always allow "my-internal-package" regardless of its license
+"my-internal-package" = "*"
 
-    python_requires='>=3.5',
+# Only allow "package-name" if it matches the version spec
+"package-name" = ">=1.0,<2.0"
 
-    install_requires=['semantic_version>=2.7.0', 'toml'],
+```
 
-    # If there are data files included in your packages that need to be
-    # installed, specify them here.  If using Python 2.6 or less, then these
-    # have to be included in MANIFEST.in as well.
-    # package_data={
-    #    'sample': ['package_data.dat'],
-    # },
+#### Legacy: `liccheck.ini`
 
-    # Although 'package_data' is the preferred approach, in some case you may
-    # need to place data files outside of your packages. See:
-    # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
-    # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
-    # data_files=[('my_data', ['data/data_file'])],
+You can also use a traditional `liccheck.ini` file and pass it via the command line.
 
-    # To provide executable scripts, use entry points in preference to the
-    # "scripts" keyword. Entry points provide cross-platform support and allow
-    # pip to create the appropriate form of executable for the target platform.
-    entry_points={
-        'console_scripts': [
-            'liccheck=liccheck.command_line:main'
-        ],
-    },
+```ini
+[Licenses]
+authorized_licenses =
+    MIT
+    Apache-2.0
+    BSD-3-Clause
+    ISC
+unauthorized_licenses =
+    AGPL-3.0-only
 
-)
+[Authorized Packages]
+my-internal-package = *
+package-name = >=1.0,<2.0
+```
+
+### 2\. Run the Check
+
+If you configured `liccheck` using `pyproject.toml`, just run the command:
+
+```bash
+liccheck
+```
+
+If you are using a legacy `.ini` file or a `requirements.txt` file, specify them:
+
+```bash
+liccheck --sfile liccheck.ini --rfile requirements.txt
+```
+
+#### Example Output
+
+```
+liccheck version 4.0.0
+gathering licenses...
+212 packages and dependencies.
+check authorized packages...
+209 packages.
+check unauthorized packages...
+1 packages.
+    problem-package (1.2.3): ['AGPL-3.0-only']
+      dependencies:
+          my-project
+check unknown packages...
+2 packages.
+    unknown-package (0.1.0): []
+      dependencies:
+          dependency-of-mine
+    other-package (3.3.0): ['UNKNOWN']
+      dependencies:
+          my-project
+```
+
+The script will exit with a non-zero status code if unauthorized or unknown licenses are found.
+
+## Command-Line Options
+
+| Argument            | `pyproject.toml` Key   | Description                                                                                                        |
+| :------------------ | :--------------------- | :----------------------------------------------------------------------------------------------------------------- |
+| `-s`, `--sfile`     | `strategy_ini_file`    | Path to your strategy `.ini` file. (Not needed if using `pyproject.toml`).                                         |
+| `-r`, `--rfile`     | `requirement_txt_file` | Path to your `requirements.txt` file. (Not needed if using `[tool.liccheck].dependencies`).                        |
+| `-l`, `--level`     | `level`                | Compliance level: `STANDARD`, `CAUTIOUS`, or `PARANOID`.                                                           |
+| `--no-deps`         | `no_deps`              | Only check packages listed in the requirements file; do not scan the full environment for transitive dependencies. |
+| `--as-regex`        | `as_regex`             | Enable regex matching for license names in your strategy.                                                          |
+| `--dep-depth`       | `dep_depth`            | Set dependency printout depth: `0` (none), `1` (direct, default), `-1` (full tree).                                |
+| `-R`, `--reporting` | `reporting_txt_file`   | Path to an output file for a simple report (e.g., `package version license status`).                               |
+| `-v`, `--version`   | N/A                    | Show the program's version number and exit.                                                                        |
+
+## Compliance Levels
+
+You can set the strictness of the check using the `--level` (or `level` key):
+
+- **`STANDARD`** (Default): Fails if a package has **no** authorized licenses. It passes if _at least one_ license is authorized, even if others are not.
+- **`CAUTIOUS`**: Fails if a package has **no** authorized licenses OR if it has _any_ unauthorized licenses.
+- **`PARANOID`**: Fails unless **all** of a package's licenses are authorized.
+
+## License
+
+This project is licensed under the Apache Software License.
+
+```
+
+```
