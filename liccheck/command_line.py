@@ -1,4 +1,4 @@
-# liccheck/command_line.py - FINAL VERSION 4.0.0
+# liccheck/command_line.py - UPDATED VERSION
 
 import argparse
 import collections
@@ -25,24 +25,49 @@ try:
 except NameError:
     FileNotFoundError = IOError
 
+
 def normalize_license(text):
-    if not isinstance(text, str): return "UNKNOWN"
-    if "::" in text: text = text.split("::")[-1].strip()
+    if not isinstance(text, str):
+        return "UNKNOWN"
+    if "::" in text:
+        text = text.split("::")[-1].strip()
     text_lower = text.lower()
-    if 'permission is hereby granted' in text_lower: return 'MIT'
-    if 'bsd 3-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-3-Clause'
-    if 'bsd 2-clause license' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD-2-Clause'
-    if 'bsd' in text_lower and 'redistribution and use in source' in text_lower: return 'BSD'
-    if 'apache license' in text_lower and 'version 2.0' in text_lower: return 'Apache-2.0'
-    if 'mozilla public license' in text_lower and 'version 2.0' in text_lower: return 'MPL-2.0'
-    if 'isc license' in text_lower and 'permission to use, copy, modify, and/or distribute' in text_lower: return 'ISC'
-    if len(text) < 40: return text.strip()
+    if "permission is hereby granted" in text_lower:
+        return "MIT"
+    if (
+        "bsd 3-clause license" in text_lower
+        and "redistribution and use in source" in text_lower
+    ):
+        return "BSD-3-Clause"
+    if (
+        "bsd 2-clause license" in text_lower
+        and "redistribution and use in source" in text_lower
+    ):
+        return "BSD-2-Clause"
+    if "bsd" in text_lower and "redistribution and use in source" in text_lower:
+        return "BSD"
+    if "apache license" in text_lower and "version 2.0" in text_lower:
+        return "Apache-2.0"
+    if "mozilla public license" in text_lower and "version 2.0" in text_lower:
+        return "MPL-2.0"
+    if (
+        "isc license" in text_lower
+        and "permission to use, copy, modify, and/or distribute" in text_lower
+    ):
+        return "ISC"
+    if len(text) < 40:
+        return text.strip()
     first_few_lines = " ".join(text.splitlines()[:5]).lower()
-    if 'mit license' in first_few_lines: return 'MIT'
-    if 'bsd license' in first_few_lines: return 'BSD'
-    if 'apache license' in first_few_lines: return 'Apache-2.0'
-    if 'isc license' in first_few_lines: return 'ISC'
+    if "mit license" in first_few_lines:
+        return "MIT"
+    if "bsd license" in first_few_lines:
+        return "BSD"
+    if "apache license" in first_few_lines:
+        return "Apache-2.0"
+    if "isc license" in first_few_lines:
+        return "ISC"
     return "UNKNOWN"
+
 
 def get_license_from_pypi(package_name):
     url = f"https://pypi.org/pypi/{package_name}/json"
@@ -51,11 +76,16 @@ def get_license_from_pypi(package_name):
             if response.status == 200:
                 data = json.load(response)
                 license_info = data.get("info", {}).get("license")
-                if license_info and license_info.strip() and license_info.strip().lower() != 'unknown':
+                if (
+                    license_info
+                    and license_info.strip()
+                    and license_info.strip().lower() != "unknown"
+                ):
                     return [license_info]
     except (error.URLError, error.HTTPError, TimeoutError, socket.timeout):
         pass
     return []
+
 
 def get_licenses_from_classifiers(dist):
     licenses = []
@@ -64,18 +94,28 @@ def get_licenses_from_classifiers(dist):
             licenses.append(classifier.split("::")[-1].strip())
     return licenses
 
+
 def get_license_metadata_only(dist):
     license_expr = dist.metadata.get("License-Expression")
-    if license_expr and license_expr.strip().lower() != "unknown": return [license_expr]
+    if license_expr and license_expr.strip().lower() != "unknown":
+        return [license_expr]
     license_str = dist.metadata.get("License")
-    if license_str and license_str.strip().lower() != "unknown": return [license_str]
+    if license_str and license_str.strip().lower() != "unknown":
+        return [license_str]
     return []
+
 
 def get_license_file_only(dist):
     try:
         if dist.files:
             for file in dist.files:
-                if file.name.upper() in ("LICENSE", "LICENSE.TXT", "LICENSE.RST", "COPYING", "LICENSE.MD"):
+                if file.name.upper() in (
+                    "LICENSE",
+                    "LICENSE.TXT",
+                    "LICENSE.RST",
+                    "COPYING",
+                    "LICENSE.MD",
+                ):
                     return [dist.read_text(file.name)]
     except Exception:
         pass
@@ -89,8 +129,10 @@ class NoValidConfigurationInPyprojectToml(BaseException):
 def from_pyproject_toml():
     try:
         pyproject_toml = toml.load("pyproject.toml")
-        try: return pyproject_toml["tool"]["liccheck"]
-        except KeyError: raise NoValidConfigurationInPyprojectToml
+        try:
+            return pyproject_toml["tool"]["liccheck"]
+        except KeyError:
+            raise NoValidConfigurationInPyprojectToml
     except FileNotFoundError:
         raise NoValidConfigurationInPyprojectToml
 
@@ -100,70 +142,138 @@ class Strategy:
         self.AUTHORIZED_LICENSES = authorized_licenses
         self.UNAUTHORIZED_LICENSES = unauthorized_licenses
         self.AUTHORIZED_PACKAGES = authorized_packages
-        self.AUTHORIZED_REGEX = (re.compile(r"(?!)") if not self.AUTHORIZED_LICENSES else re.compile("|".join([r"(?:{license})".format(license=license_str) for license_str in self.AUTHORIZED_LICENSES])))
-        self.UNAUTHORIZED_REGEX = (re.compile(r"(?!)") if not self.UNAUTHORIZED_LICENSES else re.compile("|".join([r"{license}".format(license=license_str) for license_str in self.UNAUTHORIZED_LICENSES])))
+        self.AUTHORIZED_REGEX = (
+            re.compile(r"(?!)")
+            if not self.AUTHORIZED_LICENSES
+            else re.compile(
+                "|".join(
+                    [
+                        r"(?:{license})".format(license=license_str)
+                        for license_str in self.AUTHORIZED_LICENSES
+                    ]
+                )
+            )
+        )
+        self.UNAUTHORIZED_REGEX = (
+            re.compile(r"(?!)")
+            if not self.UNAUTHORIZED_LICENSES
+            else re.compile(
+                "|".join(
+                    [
+                        r"{license}".format(license=license_str)
+                        for license_str in self.UNAUTHORIZED_LICENSES
+                    ]
+                )
+            )
+        )
 
     @classmethod
     def from_pyproject_toml(cls):
         liccheck_section = from_pyproject_toml()
-        def elements_to_lower_str(lst): return [str(_).lower() for _ in lst]
-        return cls(authorized_licenses=elements_to_lower_str(liccheck_section.get("authorized_licenses", [])), unauthorized_licenses=elements_to_lower_str(liccheck_section.get("unauthorized_licenses", [])), authorized_packages=liccheck_section.get("authorized_packages", dict()))
+
+        def elements_to_lower_str(lst):
+            return [str(_).lower() for _ in lst]
+
+        return cls(
+            authorized_licenses=elements_to_lower_str(
+                liccheck_section.get("authorized_licenses", [])
+            ),
+            unauthorized_licenses=elements_to_lower_str(
+                liccheck_section.get("unauthorized_licenses", [])
+            ),
+            authorized_packages=liccheck_section.get("authorized_packages", dict()),
+        )
 
     @classmethod
     def from_config(cls, strategy_file):
         config = ConfigParser()
         config.optionxform = str
         config.read(strategy_file)
+
         def get_config_list(section, option):
-            try: value = config.get(section, option)
-            except NoOptionError: return []
+            try:
+                value = config.get(section, option)
+            except NoOptionError:
+                return []
             return [item for item in value.lower().split("\n") if item]
+
         authorized_packages = dict()
         if config.has_section("Authorized Packages"):
-            for name, value in config.items("Authorized Packages"): authorized_packages[name] = value
-        strategy = cls(authorized_licenses=get_config_list("Licenses", "authorized_licenses"), unauthorized_licenses=get_config_list("Licenses", "unauthorized_licenses"), authorized_packages=authorized_packages)
+            for name, value in config.items("Authorized Packages"):
+                authorized_packages[name] = value
+        strategy = cls(
+            authorized_licenses=get_config_list("Licenses", "authorized_licenses"),
+            unauthorized_licenses=get_config_list("Licenses", "unauthorized_licenses"),
+            authorized_packages=authorized_packages,
+        )
         if config.has_section("Authorized Packages"):
-            for name, value in config.items("Authorized Packages"): strategy.AUTHORIZED_PACKAGES[name] = value
+            for name, value in config.items("Authorized Packages"):
+                strategy.AUTHORIZED_PACKAGES[name] = value
         return strategy
 
 
 class Level(enum.Enum):
-    STANDARD = "STANDARD"; CAUTIOUS = "CAUTIOUS"; PARANOID = "PARANOID"
+    STANDARD = "STANDARD"
+    CAUTIOUS = "CAUTIOUS"
+    PARANOID = "PARANOID"
+
     @classmethod
     def starting(cls, value):
         for member in cls:
-            if member.name.startswith(value.upper()): return member
+            if member.name.startswith(value.upper()):
+                return member
         raise ValueError("No level starting with {!r}".format(value))
-    def __str__(self): return self.name
+
+    def __str__(self):
+        return self.name
 
 
 class Reason(enum.Enum):
-    OK = "OK"; UNAUTHORIZED = "UNAUTHORIZED"; UNKNOWN = "UNKNOWN"
+    OK = "OK"
+    UNAUTHORIZED = "UNAUTHORIZED"
+    UNKNOWN = "UNKNOWN"
 
 
 def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
+
     def transform(dist):
         # The new 4-step detection logic in the correct order of priority
-        raw_licenses = get_license_metadata_only(dist) or get_license_from_pypi(dist.metadata["name"]) or get_licenses_from_classifiers(dist) or get_license_file_only(dist) or []
-        
+        raw_licenses = (
+            get_license_metadata_only(dist)
+            or get_license_from_pypi(dist.metadata["name"])
+            or get_licenses_from_classifiers(dist)
+            or get_license_file_only(dist)
+            or []
+        )
+
         licenses = [lic for lic in raw_licenses if lic]
         normalized_licenses = set()
         for lic in licenses:
             normalized_licenses.add(normalize_license(lic))
-        final_licenses = list(set([strip_license(l) for l in normalized_licenses if l and l != "UNKNOWN"]))
+        final_licenses = list(
+            set([strip_license(l) for l in normalized_licenses if l and l != "UNKNOWN"])
+        )
         dependencies = []
         requires = dist.metadata.get_all("Requires-Dist")
         if requires:
             for req in requires:
                 match = re.match(r"^[a-zA-Z0-9._-]+", req)
-                if match: dependencies.append(match.group(0))
-        return {"name": dist.metadata["name"], "version": dist.metadata["version"], "location": str(dist.locate_file('')), "dependencies": dependencies, "licenses": final_licenses}
-    
+                if match:
+                    dependencies.append(match.group(0))
+        return {
+            "name": dist.metadata["name"],
+            "version": dist.metadata["version"],
+            "location": str(dist.locate_file("")),
+            "dependencies": dependencies,
+            "licenses": final_licenses,
+        }
+
     def strip_license(license_str):
-        if license_str and license_str.lower().endswith(" license"): return license_str[: -len(" license")]
+        if license_str and license_str.lower().endswith(" license"):
+            return license_str[: -len(" license")]
         return license_str
-    
+
     resolve_func = resolve_without_deps if no_deps else resolve
     packages = [transform(dist) for dist in resolve_func(requirements)]
     unique = []
@@ -172,16 +282,41 @@ def get_packages_info(requirement_file, no_deps=False):
 
 
 def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
+    # 1. Check for Exact Match (Standard Logic)
     if pkg["name"] in strategy.AUTHORIZED_PACKAGES:
         version_spec = strategy.AUTHORIZED_PACKAGES[pkg["name"]]
         if not version_spec or version_spec == "*":
             return Reason.OK
         try:
-            if semantic_version.SimpleSpec(version_spec).match(semantic_version.Version.coerce(pkg["version"])):
+            if semantic_version.SimpleSpec(version_spec).match(
+                semantic_version.Version.coerce(pkg["version"])
+            ):
                 return Reason.OK
         except ValueError:
             pass
 
+    # 2. Check for Regex Match (NEW LOGIC)
+    # This allows keys in authorized_packages to act as regex patterns (e.g. "^aifi-.*")
+    for pattern, version_spec in strategy.AUTHORIZED_PACKAGES.items():
+        # Optimization: skip if it's the exact match we already checked
+        if pattern == pkg["name"]:
+            continue
+        try:
+            if re.fullmatch(pattern, pkg["name"]):
+                if not version_spec or version_spec == "*":
+                    return Reason.OK
+                try:
+                    if semantic_version.SimpleSpec(version_spec).match(
+                        semantic_version.Version.coerce(pkg["version"])
+                    ):
+                        return Reason.OK
+                except ValueError:
+                    pass
+        except re.error:
+            # Ignore keys that aren't valid regex
+            continue
+
+    # 3. License Compliance Check
     def check_one(license_str, license_rule="AUTHORIZED", as_regex=False):
         if as_regex:
             license_regex = getattr(strategy, "{}_REGEX".format(license_rule))
@@ -189,36 +324,58 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
         else:
             license_list = getattr(strategy, "{}_LICENSES".format(license_rule))
             return license_str in license_list
-            
+
     at_least_one_unauthorized = False
     count_authorized = 0
     licenses = get_license_names(pkg["licenses"])
     for license in licenses:
-        if check_one(license, license_rule="UNAUTHORIZED", as_regex=as_regex): at_least_one_unauthorized = True
-        if check_one(license, license_rule="AUTHORIZED", as_regex=as_regex): count_authorized += 1
-    if ((count_authorized and level is Level.STANDARD) or (count_authorized and not at_least_one_unauthorized and level is Level.CAUTIOUS) or (count_authorized and count_authorized == len(licenses) and level is Level.PARANOID)): return Reason.OK
-    if at_least_one_unauthorized: return Reason.UNAUTHORIZED
+        if check_one(license, license_rule="UNAUTHORIZED", as_regex=as_regex):
+            at_least_one_unauthorized = True
+        if check_one(license, license_rule="AUTHORIZED", as_regex=as_regex):
+            count_authorized += 1
+    if (
+        (count_authorized and level is Level.STANDARD)
+        or (
+            count_authorized
+            and not at_least_one_unauthorized
+            and level is Level.CAUTIOUS
+        )
+        or (
+            count_authorized
+            and count_authorized == len(licenses)
+            and level is Level.PARANOID
+        )
+    ):
+        return Reason.OK
+    if at_least_one_unauthorized:
+        return Reason.UNAUTHORIZED
     return Reason.UNKNOWN
+
 
 def get_license_names(licenses):
     names = []
     for license in licenses:
-        if not license: continue
+        if not license:
+            continue
         options = license.split(" OR ")
         for option in options:
             names.append(option.lower())
     return names
 
+
 def find_parents(package, all, seen):
-    if package in seen: return [package]
+    if package in seen:
+        return [package]
     seen.add(package)
     parents = [p["name"] for p in all if package in p["dependencies"]]
-    if not parents: return [package]
+    if not parents:
+        return [package]
     dependency_trees = []
     for parent in parents:
         for dependencies in find_parents(parent, all, seen):
             dependency_trees.append(package + " << " + dependencies)
     return dependency_trees
+
 
 def find_direct_parents(package, all):
     return sorted([p["name"] for p in all if package in p["dependencies"]])
@@ -237,7 +394,7 @@ def write_deps(package, all, dep_depth):
         parents = find_direct_parents(package["name"], all)
     elif dep_depth == -1:
         parents = find_parents(package["name"], all, set())
-    
+
     if parents:
         print("      dependenc{}:".format("y" if len(parents) <= 1 else "ies"))
         for parent in parents:
@@ -251,90 +408,250 @@ def write_packages(packages, all, dep_depth):
 
 def group_by(items, key):
     res = collections.defaultdict(list)
-    for item in items: res[key(item)].append(item)
+    for item in items:
+        res[key(item)].append(item)
     return res
 
 
-def process(requirement_file, strategy, level=Level.STANDARD, reporting_file=None, no_deps=False, as_regex=False, dep_depth=1):
+def process(
+    requirement_file,
+    strategy,
+    level=Level.STANDARD,
+    reporting_file=None,
+    no_deps=False,
+    as_regex=False,
+    dep_depth=1,
+):
     print("gathering licenses...")
     pkg_info = get_packages_info(requirement_file, no_deps)
     all = list(pkg_info)
     deps_mention = "" if no_deps else " and dependencies"
-    print("{} package{}{}.".format(len(pkg_info), "" if len(pkg_info) <= 1 else "s", deps_mention))
-    groups = group_by(pkg_info, functools.partial(check_package, strategy, level=level, as_regex=as_regex))
+    print(
+        "{} package{}{}.".format(
+            len(pkg_info), "" if len(pkg_info) <= 1 else "s", deps_mention
+        )
+    )
+    groups = group_by(
+        pkg_info,
+        functools.partial(check_package, strategy, level=level, as_regex=as_regex),
+    )
     ret = 0
     if reporting_file:
         packages = []
         for r, ps in groups.items():
-            for p in ps: packages.append({"name": p["name"], "version": p["version"], "license": (p["licenses"] or ["UNKNOWN"])[0], "status": r})
+            for p in ps:
+                packages.append(
+                    {
+                        "name": p["name"],
+                        "version": p["version"],
+                        "license": (p["licenses"] or ["UNKNOWN"])[0],
+                        "status": r,
+                    }
+                )
         with open(reporting_file, "w") as f:
-            for p in sorted(packages, key=lambda i: i["name"]): f.write("{} {} {} {}\n".format(p["name"], p["version"], p["license"], p["status"].value))
-    def format(l): return "{} package{}.".format(len(l), "" if len(l) <= 1 else "s")
-    if groups[Reason.OK]: print("check authorized packages..."); print(format(groups[Reason.OK]))
-    if groups[Reason.UNAUTHORIZED]: print("check unauthorized packages..."); print(format(groups[Reason.UNAUTHORIZED])); write_packages(groups[Reason.UNAUTHORIZED], all, dep_depth); ret = -1
-    if groups[Reason.UNKNOWN]: print("check unknown packages..."); print(format(groups[Reason.UNKNOWN])); write_packages(groups[Reason.UNKNOWN], all, dep_depth); ret = -1
+            for p in sorted(packages, key=lambda i: i["name"]):
+                f.write(
+                    "{} {} {} {}\n".format(
+                        p["name"], p["version"], p["license"], p["status"].value
+                    )
+                )
+
+    def format(l):
+        return "{} package{}.".format(len(l), "" if len(l) <= 1 else "s")
+
+    if groups[Reason.OK]:
+        print("check authorized packages...")
+        print(format(groups[Reason.OK]))
+    if groups[Reason.UNAUTHORIZED]:
+        print("check unauthorized packages...")
+        print(format(groups[Reason.UNAUTHORIZED]))
+        write_packages(groups[Reason.UNAUTHORIZED], all, dep_depth)
+        ret = -1
+    if groups[Reason.UNKNOWN]:
+        print("check unknown packages...")
+        print(format(groups[Reason.UNKNOWN]))
+        write_packages(groups[Reason.UNKNOWN], all, dep_depth)
+        ret = -1
     return ret
 
 
 def read_strategy(strategy_file=None):
-    try: return Strategy.from_pyproject_toml()
-    except NoValidConfigurationInPyprojectToml: pass
-    if not os.path.isfile(strategy_file): print("Need to either configure pyproject.toml or provide an existing strategy file"); sys.exit(1)
+    try:
+        return Strategy.from_pyproject_toml()
+    except NoValidConfigurationInPyprojectToml:
+        pass
+    if not os.path.isfile(strategy_file):
+        print(
+            "Need to either configure pyproject.toml or provide an existing strategy file"
+        )
+        sys.exit(1)
     return Strategy.from_config(strategy_file=strategy_file)
 
 
 def parse_args(args):
-    parser = argparse.ArgumentParser(description="Check license of packages and their dependencies.", formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("-s", "--sfile", dest="strategy_ini_file", help="strategy ini file", default="./liccheck.ini")
-    parser.add_argument("-l", "--level", choices=Level, default=Level.STANDARD, type=Level.starting, help=textwrap.dedent("""\
+    parser = argparse.ArgumentParser(
+        description="Check license of packages and their dependencies.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "-s",
+        "--sfile",
+        dest="strategy_ini_file",
+        help="strategy ini file",
+        default="./liccheck.ini",
+    )
+    parser.add_argument(
+        "-l",
+        "--level",
+        choices=Level,
+        default=Level.STANDARD,
+        type=Level.starting,
+        help=textwrap.dedent(
+            """\
             Level for testing compliance of packages, where:
               Standard - At least one authorized license (default);
               Cautious - Per standard but no unauthorized licenses;
               Paranoid - All licenses must by authorized.
-        """))
-    parser.add_argument("-r", "--rfile", dest="requirement_txt_file", help="path/to/requirement.txt file", nargs="?", default="./requirements.txt")
-    parser.add_argument("-R", "--reporting", dest="reporting_txt_file", help="path/to/reporting.txt file", nargs="?", default=None)
-    parser.add_argument("--no-deps", dest="no_deps", help="don't check dependencies", action="store_true")
-    parser.add_argument("--as-regex", dest="as_regex", help="enable regular expression matching for licenses", action="store_true")
-    parser.add_argument("--dep-depth", type=int, default=1, help="Set dependency printout depth. 0=none, 1=direct parents (default), -1=full tree.")
+        """
+        ),
+    )
+    parser.add_argument(
+        "-r",
+        "--rfile",
+        dest="requirement_txt_file",
+        help="path/to/requirement.txt file",
+        nargs="?",
+        default="./requirements.txt",
+    )
+    parser.add_argument(
+        "-R",
+        "--reporting",
+        dest="reporting_txt_file",
+        help="path/to/reporting.txt file",
+        nargs="?",
+        default=None,
+    )
+    parser.add_argument(
+        "--no-deps",
+        dest="no_deps",
+        help="don't check dependencies",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--as-regex",
+        dest="as_regex",
+        help="enable regular expression matching for licenses",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--dep-depth",
+        type=int,
+        default=1,
+        help="Set dependency printout depth. 0=none, 1=direct parents (default), -1=full tree.",
+    )
     return parser.parse_args(args)
 
 
 def merge_args(args):
-    try: config = from_pyproject_toml()
-    except NoValidConfigurationInPyprojectToml: return args
-    return {"strategy_ini_file": config.get("strategy_ini_file", args["strategy_ini_file"]), "requirement_txt_file": config.get("requirement_txt_file", args["requirement_txt_file"]), "level": Level.starting(config.get("level", args["level"].value)), "reporting_txt_file": config.get("reporting_txt_file", args["reporting_txt_file"]), "no_deps": config.get("no_deps", args["no_deps"]), "dependencies": config.get("dependencies", args["dependencies"]), "optional_dependencies": config.get("optional_dependencies", args["optional_dependencies"]), "as_regex": config.get("as_regex", args["as_regex"]), "dep_depth": config.get("dep_depth", args["dep_depth"])}
+    try:
+        config = from_pyproject_toml()
+    except NoValidConfigurationInPyprojectToml:
+        return args
+    return {
+        "strategy_ini_file": config.get("strategy_ini_file", args["strategy_ini_file"]),
+        "requirement_txt_file": config.get(
+            "requirement_txt_file", args["requirement_txt_file"]
+        ),
+        "level": Level.starting(config.get("level", args["level"].value)),
+        "reporting_txt_file": config.get(
+            "reporting_txt_file", args["reporting_txt_file"]
+        ),
+        "no_deps": config.get("no_deps", args["no_deps"]),
+        "dependencies": config.get("dependencies", args["dependencies"]),
+        "optional_dependencies": config.get(
+            "optional_dependencies", args["optional_dependencies"]
+        ),
+        "as_regex": config.get("as_regex", args["as_regex"]),
+        "dep_depth": config.get("dep_depth", args["dep_depth"]),
+    }
 
 
-def generate_requirements_file_from_pyproject(include_dependencies, optional_dependencies):
+def generate_requirements_file_from_pyproject(
+    include_dependencies, optional_dependencies
+):
     import tempfile
+
     directory = tempfile.mkdtemp(prefix="liccheck_")
     requirements_txt_file = directory + "/requirements.txt"
     with open(requirements_txt_file, "w") as f:
         ptoml = toml.load("pyproject.toml")
-        project = ptoml.get("project", {}); poetry = ptoml.get("tool", {}).get('poetry', {}); dependencies = set()
+        project = ptoml.get("project", {})
+        poetry = ptoml.get("tool", {}).get("poetry", {})
+        dependencies = set()
         if include_dependencies:
-            dependencies |= set(project.get("dependencies", [])); dependencies |= set(d for d, v in poetry.get("dependencies", {}).items() if d != 'python' and (not isinstance(v, dict) or not v.get('optional')))
+            dependencies |= set(project.get("dependencies", []))
+            dependencies |= set(
+                d
+                for d, v in poetry.get("dependencies", {}).items()
+                if d != "python" and (not isinstance(v, dict) or not v.get("optional"))
+            )
         if optional_dependencies:
-            extra_dependency = project.get("optional-dependencies", {}); extra_dependency.update(poetry.get("extras", {}))
-            if '*' in optional_dependencies: optional_dependencies = extra_dependency.keys()
-            for opt in optional_dependencies: extralist = extra_dependency.get(opt, []); dependencies |= set(extralist)
+            extra_dependency = project.get("optional-dependencies", {})
+            extra_dependency.update(poetry.get("extras", {}))
+            if "*" in optional_dependencies:
+                optional_dependencies = extra_dependency.keys()
+            for opt in optional_dependencies:
+                extralist = extra_dependency.get(opt, [])
+                dependencies |= set(extralist)
         f.write(os.linesep.join(sorted(dependencies)))
     return requirements_txt_file
 
 
 def run(args):
-    merged_args = merge_args({"strategy_ini_file": args.strategy_ini_file, "requirement_txt_file": args.requirement_txt_file, "level": args.level, "reporting_txt_file": args.reporting_txt_file, "no_deps": args.no_deps, "dependencies": False, "optional_dependencies": [], "as_regex": False, "dep_depth": args.dep_depth})
+    merged_args = merge_args(
+        {
+            "strategy_ini_file": args.strategy_ini_file,
+            "requirement_txt_file": args.requirement_txt_file,
+            "level": args.level,
+            "reporting_txt_file": args.reporting_txt_file,
+            "no_deps": args.no_deps,
+            "dependencies": False,
+            "optional_dependencies": [],
+            "as_regex": False,
+            "dep_depth": args.dep_depth,
+        }
+    )
     strategy = read_strategy(merged_args["strategy_ini_file"])
     requirements_file_generated = False
-    if merged_args["dependencies"] is True or len(merged_args["optional_dependencies"]) > 0:
-        merged_args["requirement_txt_file"] = generate_requirements_file_from_pyproject(merged_args["dependencies"], merged_args["optional_dependencies"]); requirements_file_generated = True
-    try: return process(merged_args["requirement_txt_file"], strategy, merged_args["level"], merged_args["reporting_txt_file"], merged_args["no_deps"], merged_args["as_regex"], merged_args["dep_depth"])
+    if (
+        merged_args["dependencies"] is True
+        or len(merged_args["optional_dependencies"]) > 0
+    ):
+        merged_args["requirement_txt_file"] = generate_requirements_file_from_pyproject(
+            merged_args["dependencies"], merged_args["optional_dependencies"]
+        )
+        requirements_file_generated = True
+    try:
+        return process(
+            merged_args["requirement_txt_file"],
+            strategy,
+            merged_args["level"],
+            merged_args["reporting_txt_file"],
+            merged_args["no_deps"],
+            merged_args["as_regex"],
+            merged_args["dep_depth"],
+        )
     finally:
         if requirements_file_generated:
             import pathlib, shutil
-            shutil.rmtree(pathlib.Path(merged_args["requirement_txt_file"]).parent, ignore_errors=True)
+
+            shutil.rmtree(
+                pathlib.Path(merged_args["requirement_txt_file"]).parent,
+                ignore_errors=True,
+            )
 
 
 def main():
