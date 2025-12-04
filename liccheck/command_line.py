@@ -476,16 +476,23 @@ def process(
 
 
 def read_strategy(strategy_file=None):
+    # 1. Priority: Explicit Strategy File (INI)
+    # If a file is passed via -s and it exists, use it immediately.
+    if strategy_file and os.path.isfile(strategy_file):
+        return Strategy.from_config(strategy_file=strategy_file)
+
+    # 2. Fallback: pyproject.toml
+    # Only check this if no INI file was used.
     try:
         return Strategy.from_pyproject_toml()
     except NoValidConfigurationInPyprojectToml:
         pass
-    if not os.path.isfile(strategy_file):
-        print(
-            "Need to either configure pyproject.toml or provide an existing strategy file"
-        )
-        sys.exit(1)
-    return Strategy.from_config(strategy_file=strategy_file)
+
+    # 3. Failure: No valid config found anywhere
+    print(
+        "Need to either configure pyproject.toml or provide an existing strategy file"
+    )
+    sys.exit(1)
 
 
 def parse_args(args):
