@@ -1,4 +1,4 @@
-# liccheck/command_line.py - UPDATED VERSION
+# liccheck/command_line.py - VERSION 4.0.1
 
 import argparse
 import collections
@@ -18,7 +18,8 @@ import sys
 import semantic_version
 import toml
 
-__version__ = "4.0.0"
+# UPDATE VERSION HERE
+__version__ = "4.0.1"
 
 try:
     FileNotFoundError
@@ -238,7 +239,6 @@ def get_packages_info(requirement_file, no_deps=False):
     requirements = parse_requirements(requirement_file)
 
     def transform(dist):
-        # The new 4-step detection logic in the correct order of priority
         raw_licenses = (
             get_license_metadata_only(dist)
             or get_license_from_pypi(dist.metadata["name"])
@@ -246,7 +246,6 @@ def get_packages_info(requirement_file, no_deps=False):
             or get_license_file_only(dist)
             or []
         )
-
         licenses = [lic for lic in raw_licenses if lic]
         normalized_licenses = set()
         for lic in licenses:
@@ -295,10 +294,8 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
         except ValueError:
             pass
 
-    # 2. Check for Regex Match (NEW LOGIC)
-    # This allows keys in authorized_packages to act as regex patterns (e.g. "^aifi-.*")
+    # 2. Check for Regex Match (NEW LOGIC - 4.0.1)
     for pattern, version_spec in strategy.AUTHORIZED_PACKAGES.items():
-        # Optimization: skip if it's the exact match we already checked
         if pattern == pkg["name"]:
             continue
         try:
@@ -313,7 +310,6 @@ def check_package(strategy, pkg, level=Level.STANDARD, as_regex=False):
                 except ValueError:
                     pass
         except re.error:
-            # Ignore keys that aren't valid regex
             continue
 
     # 3. License Compliance Check
